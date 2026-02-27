@@ -11,39 +11,21 @@ export default function PoliticoPerfil() {
     const idPolitico = params.id;
     const [loading, setLoading] = useState(true);
 
-    // Variável com dados Simulados Densamente Gamificados
-    const politicoData = {
-        nome: "Aécio Neves",
-        cargo: "Deputado Federal",
-        partido: "PSDB",
-        uf: "MG",
-        foto: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/A%C3%A9cio_Neves.jpg/800px-A%C3%A9cio_Neves.jpg",
-        score_auditoria: 350,
-        badges: [
-            { id: 1, nome: "Alvo da Lava-Jato", icon: <ShieldAlert className="w-4 h-4 text-red-400" />, color: "bg-red-500/10 border-red-500/50 text-red-500" },
-            { id: 2, nome: "Teto de Gastos Violado", icon: <Banknote className="w-4 h-4 text-orange-400" />, color: "bg-orange-500/10 border-orange-500/50 text-orange-500" },
-            { id: 3, nome: "Rabo Preso Detectado", icon: <Fingerprint className="w-4 h-4 text-purple-400" />, color: "bg-purple-500/10 border-purple-500/50 text-purple-500" }
-        ],
-        redFlags: [
-            { data: "2017", titulo: "Áudios da JBS", desc: "Gravações sobre recebimento de propinas." },
-            { data: "2020", titulo: "Inquérito Furnas", desc: "Corrupção passiva e lavagem de dinheiro." },
-            { data: "2023", titulo: "Licitações Suspeitas", desc: "Empresas ligadas a parentes com contratos públicos." }
-        ],
-        empresas: [
-            { nome: "Aeroporto de Cláudio Participações", cargo: "Declarado pelo TSE", valor: "R$ 14.000.000,00" },
-            { nome: "Rádio Arco-Íris", cargo: "Associação Familiar", valor: "R$ 5.400.000,00" }
-        ],
-        projetos: [
-            { titulo: "PEC do Teto", status: "Aprovado", presence: 85 },
-            { titulo: "Reforma Trabalhista", status: "Aprovado", presence: 90 },
-        ]
-    };
+    const [politicoData, setPoliticoData] = useState<any>(null);
 
     useEffect(() => {
-        // Simula chamadas lentas à API local
-        const timer = setTimeout(() => setLoading(false), 800);
-        return () => clearTimeout(timer);
-    }, []);
+        if (!idPolitico) return;
+
+        fetch(`http://localhost:8000/api/politico/detalhes/${idPolitico}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === "sucesso") {
+                    setPoliticoData(data.dados);
+                }
+            })
+            .catch(err => console.error("Erro ao buscar dossiê ID:", err))
+            .finally(() => setLoading(false));
+    }, [idPolitico]);
 
     if (loading) {
         return (
@@ -92,11 +74,12 @@ export default function PoliticoPerfil() {
                         <h1 className="text-5xl font-black text-white mb-2">{politicoData.nome}</h1>
                         <h2 className="text-xl text-neutral-400 font-bold mb-4">{politicoData.cargo} - <span className="text-neutral-300">{politicoData.partido}/{politicoData.uf}</span></h2>
 
-                        {/* BADGES */}
                         <div className="flex flex-wrap items-center justify-center md:justify-start gap-3">
-                            {politicoData.badges.map(badge => (
+                            {politicoData.badges && politicoData.badges.map((badge: any) => (
                                 <div key={badge.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold uppercase tracking-wider ${badge.color}`}>
-                                    {badge.icon} {badge.nome}
+                                    {badge.icon === 'ShieldAlert' && <ShieldAlert className="w-4 h-4 text-red-400" />}
+                                    {badge.icon === 'Banknote' && <Banknote className="w-4 h-4 text-orange-400" />}
+                                    {badge.nome}
                                 </div>
                             ))}
                         </div>
@@ -135,7 +118,7 @@ export default function PoliticoPerfil() {
                             <FileText className="w-5 h-5" /> Legislação & Assiduidade
                         </h3>
                         <div className="space-y-6">
-                            {politicoData.projetos.map((proj, idx) => (
+                            {politicoData.projetos && politicoData.projetos.map((proj: any, idx: number) => (
                                 <div key={idx}>
                                     <div className="flex justify-between text-sm mb-1">
                                         <span className="font-bold text-neutral-200">{proj.titulo}</span>
@@ -161,7 +144,7 @@ export default function PoliticoPerfil() {
                         </h3>
 
                         <div className="space-y-6 relative before:absolute before:inset-0 before:ml-2.5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-neutral-800 before:to-transparent">
-                            {politicoData.redFlags.map((flag, idx) => (
+                            {politicoData.redFlags && politicoData.redFlags.map((flag: any, idx: number) => (
                                 <motion.div
                                     initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.5 + (idx * 0.1) }}
                                     key={idx} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active"
@@ -190,7 +173,7 @@ export default function PoliticoPerfil() {
                             <Building2 className="w-5 h-5" /> Rabo Preso S/A
                         </h3>
                         <div className="space-y-4">
-                            {politicoData.empresas.map((emp, idx) => (
+                            {politicoData.empresas && politicoData.empresas.map((emp: any, idx: number) => (
                                 <motion.div
                                     initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 + (idx * 0.1) }}
                                     key={idx} className="bg-neutral-950 border border-neutral-800 p-4 rounded-2xl flex items-center gap-4 group"
