@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:15
+    container_name: govtech_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: senha_super_secreta_123
+      POSTGRES_DB: govtech_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  neo4j:
+    image: neo4j:5
+    container_name: govtech_neo4j
+    environment:
+      NEO4J_AUTH: neo4j/senha_secreta_123
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+
+  backend:
+    build:
+      context: ./backend
+    container_name: govtech_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - db
+      - neo4j
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: govtech_frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+  neo4j_data:

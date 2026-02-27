@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+neo4j
+psycopg2-binary
+requests
+beautifulsoup4
+python-dotenv

@@ -1,0 +1,14 @@
+# Ambientes
+.env
+venv/
+backend/venv/
+__pycache__/
+
+# Node
+node_modules/
+dist/
+.next/
+
+# SO
+.DS_Store
+Thumbs.db
