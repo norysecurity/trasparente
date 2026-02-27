@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, User, Filter, Crown, Castle, Fish } from "lucide-react";
+import { Search, User, Filter, Crown, Castle, Fish, MapPin } from "lucide-react";
 import { ComposableMap, Geographies, Geography, ZoomableGroup } from "react-simple-maps";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
