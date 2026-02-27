@@ -1,6 +1,5 @@
 import requests
 import uvicorn
-import random
 import asyncio
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,7 +34,7 @@ def buscar_por_estado(uf: str):
         resultados = []
         for d in dados:
             d['cargo'] = "Deputado Federal"
-            d['score_auditoria'] = random.randint(500, 990)
+            d['score_auditoria'] = 1000 
             resultados.append(d)
             
         return {"status": "sucesso", "dados": resultados}
@@ -53,18 +52,14 @@ def buscar_politico(nome: str):
         
         for d in dados:
             d['cargo'] = "Deputado Federal"
-            d['score_auditoria'] = random.randint(400, 900)
+            d['score_auditoria'] = 1000
             
         return {"status": "sucesso", "dados": dados}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 def disparar_worker_assincrono(nome_politico: str, cpf: str, cnpjs_suspeitos: list):
-    """
-    Função Helper para rodar a rotina de automação no event loop principal do Worker.
-    """
     try:
-        # Cria ou reutiliza o loop do asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(auditar_malha_fina(nome_politico, cpf, cnpjs_suspeitos))
@@ -74,29 +69,32 @@ def disparar_worker_assincrono(nome_politico: str, cpf: str, cnpjs_suspeitos: li
 @app.get("/api/politico/detalhes/{id}")
 def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
     try:
-        # 1. Bate na API Oficial para os Dados Básicos
         res_basico = requests.get(f"{CAMARA_API}/{id}")
         res_basico.raise_for_status()
         dado_basico = res_basico.json().get("dados", {})
         
-        # 2. Bate na API para Buscar Despesas Reais (Serão listadas como vínculos de Empresa por gora)
         res_despesas = requests.get(f"{CAMARA_API}/{id}/despesas", params={"itens": 5, "ordem": "DESC", "ordenarPor": "dataDocumento"})
         despesas_data = res_despesas.json().get("dados", []) if res_despesas.status_code == 200 else []
         
         empresas_reais = []
         cnpjs_para_osint = []
+        total_despesas = 0
+
         for d in despesas_data:
             cnpj_raw = str(d.get("cnpjCpfFornecedor", "")).replace(".", "").replace("-", "").replace("/", "").strip()
             if cnpj_raw and len(cnpj_raw) == 14:
                 cnpjs_para_osint.append(cnpj_raw)
 
+            valor_despesa = d.get('valorDocumento', 0)
+            total_despesas += valor_despesa
+
             empresas_reais.append({
-                "nome": d.get("nomeFornecedor", "Fornecedor Governamental"),
-                "cargo": d.get("tipoDespesa", "Contrato de Terceiro"),
-                "valor": f"R$ {d.get('valorDocumento', 0):.2f}".replace('.', ',')
+                "nome": d.get("nomeFornecedor", "Fornecedor"),
+                "cargo": d.get("tipoDespesa", "Despesa"),
+                "valor": f"R$ {valor_despesa:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
+                "fonte": d.get("urlDocumento", "")
             })
 
-        # 3. Bate na API para Órgãos (Comissões Participadas) para os "Projetos"
         res_orgaos = requests.get(f"{CAMARA_API}/{id}/orgaos", params={"itens": 5, "ordem": "DESC", "ordenarPor": "idOrgao"})
         orgaos_data = res_orgaos.json().get("dados", []) if res_orgaos.status_code == 200 else []
         
@@ -105,18 +103,29 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
             projetos_reais.append({
                 "titulo": o.get("nomeOrgao", "Comissão Federal"),
                 "status": o.get("tituloAbreviado", "Titular"),
-                "presence": random.randint(70, 100) # Assiduidade mantida como score gamificado
+                "presence": 100
             })
 
-        # 4. Processa Variáveis Vitais da Busca
         ultimo_status = dado_basico.get("ultimoStatus", {})
         nome_completo = ultimo_status.get("nomeEleitoral", dado_basico.get("nomeCivil", "Desconhecido"))
-        cpf_oculto = dado_basico.get("cpf", "000.000.000-00")
+        cpf_oculto = dado_basico.get("cpf", "00000000000")
         
-        # 5. ENGATILHA O ROBO DA VERDADE (OSINT - Neo4j / Diário Oficial / FitZ PDF Scanner) EM SEGUNDO PLANO
+        score_base = 1000
+        motivos_deducao = []
+        if total_despesas > 20000:
+            score_base -= 150
+            motivos_deducao.append(f"Alta movimentação nas últimas 5 despesas (R$ {total_despesas:,.2f})")
+        
+        if len(projetos_reais) == 0:
+            score_base -= 50
+            motivos_deducao.append("Baixa participação em comissões recentes")
+
+        explicacao_score = "Comportamento dentro do padrão no histórico analisado."
+        if motivos_deducao:
+            explicacao_score = f"Deduções aplicadas: {', '.join(motivos_deducao)}."
+        
         background_tasks.add_task(disparar_worker_assincrono, nome_completo, cpf_oculto, cnpjs_para_osint)
 
-        # 6. Monta o Super Objeto Final de Resposta Genuína
         dado_completo = {
             "id": dado_basico.get("id", id),
             "nome": nome_completo,
@@ -124,13 +133,12 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
             "partido": ultimo_status.get("siglaPartido", "Sem Partido"),
             "uf": ultimo_status.get("siglaUf", "BR"),
             "foto": ultimo_status.get("urlFoto", ""),
-            "score_auditoria": random.randint(400, 950),
+            "score_auditoria": max(0, score_base),
+            "explicacao_score": explicacao_score,
             "badges": [
                 {"id": 1, "nome": "Auditoria IA Iniciada", "color": "bg-purple-500/10 border-purple-500/50 text-purple-500", "icon": "Fingerprint"}
             ],
-            "redFlags": [
-                {"data": "Hoje", "titulo": "OSINT Robot Ativo", "desc": "Worker rodando varredura profunda no Diário Oficial. Retorne depois para ver a Árvore Neo4j."}
-            ],
+            "redFlags": [],
             "empresas": empresas_reais,
             "projetos": projetos_reais
         }
