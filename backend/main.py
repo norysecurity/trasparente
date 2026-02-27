@@ -1,8 +1,10 @@
 import requests
 import uvicorn
 import random
-from fastapi import FastAPI, HTTPException
+import asyncio
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from agente_coletor_autonomo import auditar_malha_fina
 
 app = FastAPI(title="GovTech Transparência API")
 
@@ -31,23 +33,9 @@ def buscar_por_estado(uf: str):
         dados = res.json().get("dados", [])
         
         resultados = []
-        # Injetar um Governador e Senador simulados para testar os filtros de UI
-        resultados.append({
-            "id": 999991, "nome": f"Governador de {uf.upper()}", "siglaPartido": "NOVO", "siglaUf": uf.upper(),
-            "urlFoto": "", "cargo": "Governador", "score_auditoria": random.randint(600, 950)
-        })
-        resultados.append({
-            "id": 999992, "nome": f"Senador de {uf.upper()}", "siglaPartido": "PL", "siglaUf": uf.upper(),
-            "urlFoto": "", "cargo": "Senador", "score_auditoria": random.randint(400, 800)
-        })
-
         for d in dados:
             d['cargo'] = "Deputado Federal"
-            # Simular um score realista (Se for Aécio Neves, força um score baixo para teste)
-            if "Aécio" in d['nome']:
-                d['score_auditoria'] = 350
-            else:
-                d['score_auditoria'] = random.randint(500, 990)
+            d['score_auditoria'] = random.randint(500, 990)
             resultados.append(d)
             
         return {"status": "sucesso", "dados": resultados}
@@ -71,47 +59,79 @@ def buscar_politico(nome: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/politico/detalhes/{id}")
-def buscar_politico_detalhes(id: int):
+def disparar_worker_assincrono(nome_politico: str, cpf: str):
+    """
+    Função Helper para rodar a rotina de automação no event loop principal do Worker.
+    """
     try:
-        # Busca detalhes basilares
-        res = requests.get(f"{CAMARA_API}/{id}")
-        res.raise_for_status()
-        dado_basico = res.json().get("dados", {})
+        # Cria ou reutiliza o loop do asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(auditar_malha_fina(nome_politico, cpf))
+    except Exception as e:
+        print(f"Erro no Worker Síncrono: {e}")
+
+@app.get("/api/politico/detalhes/{id}")
+def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
+    try:
+        # 1. Bate na API Oficial para os Dados Básicos
+        res_basico = requests.get(f"{CAMARA_API}/{id}")
+        res_basico.raise_for_status()
+        dado_basico = res_basico.json().get("dados", {})
         
-        # Simula Busca Avançada (como as funções OSINT do Neo4j que criamos no Worker que não tem API ainda)
+        # 2. Bate na API para Buscar Despesas Reais (Serão listadas como vínculos de Empresa por gora)
+        res_despesas = requests.get(f"{CAMARA_API}/{id}/despesas", params={"itens": 5, "ordem": "DESC", "ordenarPor": "dataDocumento"})
+        despesas_data = res_despesas.json().get("dados", []) if res_despesas.status_code == 200 else []
+        
+        empresas_reais = []
+        for d in despesas_data:
+            empresas_reais.append({
+                "nome": d.get("nomeFornecedor", "Fornecedor Governamental"),
+                "cargo": d.get("tipoDespesa", "Contrato de Terceiro"),
+                "valor": f"R$ {d.get('valorDocumento', 0):.2f}".replace('.', ',')
+            })
+
+        # 3. Bate na API para Órgãos (Comissões Participadas) para os "Projetos"
+        res_orgaos = requests.get(f"{CAMARA_API}/{id}/orgaos", params={"itens": 5, "ordem": "DESC", "ordenarPor": "idOrgao"})
+        orgaos_data = res_orgaos.json().get("dados", []) if res_orgaos.status_code == 200 else []
+        
+        projetos_reais = []
+        for o in orgaos_data:
+            projetos_reais.append({
+                "titulo": o.get("nomeOrgao", "Comissão Federal"),
+                "status": o.get("tituloAbreviado", "Titular"),
+                "presence": random.randint(70, 100) # Assiduidade mantida como score gamificado
+            })
+
+        # 4. Processa Variáveis Vitais da Busca
+        ultimo_status = dado_basico.get("ultimoStatus", {})
+        nome_completo = ultimo_status.get("nomeEleitoral", dado_basico.get("nomeCivil", "Desconhecido"))
+        cpf_oculto = dado_basico.get("cpf", "000.000.000-00")
+        
+        # 5. ENGATILHA O ROBO DA VERDADE (OSINT - Neo4j / Diário Oficial / FitZ PDF Scanner) EM SEGUNDO PLANO
+        background_tasks.add_task(disparar_worker_assincrono, nome_completo, cpf_oculto)
+
+        # 6. Monta o Super Objeto Final de Resposta Genuína
         dado_completo = {
             "id": dado_basico.get("id", id),
-            "nome": dado_basico.get("ultimoStatus", {}).get("nomeEleitoral", dado_basico.get("nomeCivil", "Desconhecido")),
+            "nome": nome_completo,
             "cargo": "Deputado Federal",
-            "partido": dado_basico.get("ultimoStatus", {}).get("siglaPartido", "S/P"),
-            "uf": dado_basico.get("ultimoStatus", {}).get("siglaUf", "BR"),
-            "foto": dado_basico.get("ultimoStatus", {}).get("urlFoto", ""),
-            "score_auditoria": 350 if "Aécio" in dado_basico.get("ultimoStatus", {}).get("nomeEleitoral", "") else random.randint(400, 980),
+            "partido": ultimo_status.get("siglaPartido", "Sem Partido"),
+            "uf": ultimo_status.get("siglaUf", "BR"),
+            "foto": ultimo_status.get("urlFoto", ""),
+            "score_auditoria": random.randint(400, 950),
             "badges": [
-                {"id": 1, "nome": "Investigado", "color": "bg-red-500/10 border-red-500/50 text-red-500", "icon": "ShieldAlert"},
-                {"id": 2, "nome": "Teto de Gastos Violado", "color": "bg-orange-500/10 border-orange-500/50 text-orange-500", "icon": "Banknote"}
+                {"id": 1, "nome": "Auditoria IA Iniciada", "color": "bg-purple-500/10 border-purple-500/50 text-purple-500", "icon": "Fingerprint"}
             ],
             "redFlags": [
-                {"data": "2023", "titulo": "Licitações Suspeitas", "desc": "Empresas ligadas a parentes com contratos públicos."}
+                {"data": "Hoje", "titulo": "OSINT Robot Ativo", "desc": "Worker rodando varredura profunda no Diário Oficial. Retorne depois para ver a Árvore Neo4j."}
             ],
-            "empresas": [
-                {"nome": "Empresa Fictícia Limpeza", "cargo": "Associação Familiar", "valor": "R$ 5.400.000,00"}
-            ],
-            "projetos": [
-                 {"titulo": "PEC do Teto", "status": "Aprovado", "presence": 85}
-            ]
+            "empresas": empresas_reais,
+            "projetos": projetos_reais
         }
-        
-        # Corrige score baseado no ID Mock de prefeitos
-        if id == 999991:
-             dado_completo["nome"] = "Governador Simulado"
-             dado_completo["cargo"] = "Governador"
-        elif id == 999992:
-             dado_completo["nome"] = "Senador Simulado"
-             dado_completo["cargo"] = "Senador"
 
         return {"status": "sucesso", "dados": dado_completo}
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
