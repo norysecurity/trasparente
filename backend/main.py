@@ -21,6 +21,41 @@ app.add_middleware(
 
 CAMARA_API = "https://dadosabertos.camara.leg.br/api/v2/deputados"
 
+# Mapeamento de Fontes: Nomenclatura Editorial Neutra/Acadêmica
+MAPA_LINHA_EDITORIAL = {
+    # Mídia Progressista (Antiga Esquerda)
+    "CartaCapital": "Progressista",
+    "Brasil 247": "Progressista",
+    "Revista Fórum": "Progressista",
+    "DCM": "Progressista",
+    "Diário do Centro do Mundo": "Progressista",
+    "Intercept Brasil": "Progressista",
+    "Agência Pública": "Progressista",
+    "Opera Mundi": "Progressista",
+
+    # Mídia Conservadora (Antiga Direita)
+    "Jovem Pan": "Conservadora",
+    "Gazeta do Povo": "Conservadora",
+    "Revista Oeste": "Conservadora",
+    "O Antagonista": "Conservadora",
+    "Pleno.News": "Conservadora",
+    "Conexão Política": "Conservadora",
+    "Terra Brasil Notícias": "Conservadora",
+
+    # Mídia Institucional / Corporativa (Antigo Centro)
+    "G1": "Institucional",
+    "UOL": "Institucional",
+    "Folha de S.Paulo": "Institucional",
+    "O Estado de S. Paulo": "Institucional",
+    "Estadão": "Institucional",
+    "O Globo": "Institucional",
+    "CNN Brasil": "Institucional",
+    "Veja": "Institucional",
+    "Metrópoles": "Institucional",
+    "Poder360": "Institucional",
+    "BBC Brasil": "Institucional"
+}
+
 @app.get("/api/executivo")
 def obter_executivo():
     return {
@@ -234,9 +269,18 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         noticias_brutas = DDGS().news(keywords=nome_completo, region="br-pt", max_results=5)
         if noticias_brutas:
             for n in noticias_brutas:
+                fonte_raw = n.get("source", "Outros")
+                linha_calc = "Independente/Outros"
+                
+                for k, v in MAPA_LINHA_EDITORIAL.items():
+                    if k.lower() in fonte_raw.lower():
+                        linha_calc = v
+                        break
+                        
                 noticias_limpas.append({
                     "titulo": n.get("title", "Sem Título"),
-                    "fonte": n.get("source", "Mídia Externa"),
+                    "fonte": fonte_raw,
+                    "linha_editorial": linha_calc,
                     "data": n.get("date", "Recente"),
                     "url": n.get("url", "#")
                 })

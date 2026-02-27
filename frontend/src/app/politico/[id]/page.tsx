@@ -10,7 +10,7 @@ export default function PoliticoPerfil() {
     const router = useRouter();
     const idPolitico = params.id;
     const [loading, setLoading] = useState(true);
-
+    const [filtroEditorial, setFiltroEditorial] = useState("Todas as Fontes");
     const [politicoData, setPoliticoData] = useState<any>(null);
 
     useEffect(() => {
@@ -241,35 +241,68 @@ export default function PoliticoPerfil() {
                     {/* COLUNA 4: NOTÍCIAS RECENTES */}
                     <motion.div
                         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.5 }}
-                        className="bg-neutral-900/30 border border-blue-500/20 rounded-3xl p-6 relative overflow-hidden"
+                        className="bg-neutral-900/30 border border-blue-500/20 rounded-3xl p-6 relative overflow-hidden flex flex-col"
                     >
                         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 blur-[50px] rounded-full pointer-events-none" />
-                        <h3 className="text-blue-400 font-bold mb-6 flex items-center gap-2 border-b border-blue-500/20 pb-4">
-                            <Newspaper className="w-5 h-5" /> Notícias na Mídia
+                        <h3 className="text-blue-400 font-bold mb-4 flex items-center gap-2 border-b border-blue-500/20 pb-4">
+                            <Newspaper className="w-5 h-5" /> Monitoramento de Imprensa
                         </h3>
 
                         {politicoData.noticias && politicoData.noticias.length > 0 ? (
-                            <div className="space-y-4 relative max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
-                                {politicoData.noticias.map((noticia: any, idx: number) => (
-                                    <motion.div
-                                        initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.6 + (idx * 0.1) }}
-                                        key={idx} className="bg-neutral-950/50 border border-neutral-800 p-4 rounded-2xl flex flex-col gap-2 hover:border-blue-500/30 transition group"
-                                    >
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[10px] uppercase font-bold text-blue-400 font-mono tracking-wider">{noticia.fonte}</span>
-                                            <span className="text-[10px] text-neutral-500">{noticia.data}</span>
+                            <>
+                                <div className="flex flex-wrap gap-2 mb-4">
+                                    {["Todas as Fontes", "Institucional", "Progressista", "Conservadora"].map(f => (
+                                        <button
+                                            key={f}
+                                            onClick={() => setFiltroEditorial(f)}
+                                            className={`text-[10px] uppercase font-bold px-3 py-1.5 rounded-md transition-colors ${filtroEditorial === f ? 'bg-blue-600 text-white' : 'bg-neutral-900 border border-neutral-700 text-neutral-400 hover:bg-neutral-800 hover:border-neutral-600'}`}
+                                        >
+                                            {f}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="space-y-4 relative max-h-[380px] overflow-y-auto custom-scrollbar pr-2 flex-1">
+                                    {politicoData.noticias
+                                        .filter((n: any) => filtroEditorial === "Todas as Fontes" || n.linha_editorial === filtroEditorial)
+                                        .map((noticia: any, idx: number) => {
+
+                                            const badgeColor = noticia.linha_editorial === 'Progressista' ? 'bg-rose-900/30 text-rose-400 border-rose-900/50' :
+                                                noticia.linha_editorial === 'Conservadora' ? 'bg-cyan-900/30 text-cyan-400 border-cyan-900/50' :
+                                                    noticia.linha_editorial === 'Institucional' ? 'bg-neutral-800 text-neutral-300 border-neutral-700' :
+                                                        'bg-amber-900/30 text-amber-400 border-amber-900/50';
+
+                                            return (
+                                                <motion.div
+                                                    initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3 }}
+                                                    key={`${idx}-${noticia.titulo}`} className="bg-neutral-950/50 border border-neutral-800 p-4 rounded-2xl flex flex-col gap-2 hover:border-blue-500/30 transition group"
+                                                >
+                                                    <div className="flex items-center justify-between flex-wrap gap-y-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-[10px] uppercase font-bold text-blue-400 font-mono tracking-wider">{noticia.fonte}</span>
+                                                            <span className={`text-[8px] uppercase font-bold px-1.5 py-0.5 rounded border ${badgeColor}`}>
+                                                                {noticia.linha_editorial || 'Independente'}
+                                                            </span>
+                                                        </div>
+                                                        <span className="text-[10px] text-neutral-500 ml-auto">{noticia.data}</span>
+                                                    </div>
+                                                    <h4 className="font-bold text-neutral-200 text-sm leading-snug">{noticia.titulo}</h4>
+                                                    <div className="mt-2 pt-2 border-t border-neutral-800">
+                                                        <a href={noticia.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] font-bold text-blue-500 hover:text-blue-400 w-fit">
+                                                            Ler Matéria Completa <ExternalLink className="w-3 h-3" />
+                                                        </a>
+                                                    </div>
+                                                </motion.div>
+                                            );
+                                        })}
+                                    {politicoData.noticias.filter((n: any) => filtroEditorial === "Todas as Fontes" || n.linha_editorial === filtroEditorial).length === 0 && (
+                                        <div className="text-center p-4 text-xs text-neutral-500 font-mono">
+                                            Nenhuma notícia classificada como {filtroEditorial} neste ciclo.
                                         </div>
-                                        <h4 className="font-bold text-neutral-200 text-sm leading-snug">{noticia.titulo}</h4>
-                                        <div className="mt-2 pt-2 border-t border-neutral-800">
-                                            <a href={noticia.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] font-bold text-blue-500 hover:text-blue-400 w-fit">
-                                                Ler Matéria Completa <ExternalLink className="w-3 h-3" />
-                                            </a>
-                                        </div>
-                                    </motion.div>
-                                ))}
-                            </div>
+                                    )}
+                                </div>
+                            </>
                         ) : (
-                            <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-neutral-700 bg-neutral-900/20 rounded-2xl">
+                            <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-neutral-700 bg-neutral-900/20 rounded-2xl flex-1">
                                 <span className="text-xs text-neutral-500 font-mono tracking-widest">Nenhuma notícia recente encontrada nos principais portais.</span>
                             </div>
                         )}
