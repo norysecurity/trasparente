@@ -7,6 +7,7 @@ import json
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from agente_coletor_autonomo import auditar_malha_fina
+from duckduckgo_search import DDGS
 
 app = FastAPI(title="GovTech Transparência API")
 
@@ -228,6 +229,20 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
     else:
         background_tasks.add_task(disparar_worker_assincrono, id, nome_completo, cpf_oculto, [""])
 
+    noticias_limpas = []
+    try:
+        noticias_brutas = DDGS().news(keywords=nome_completo, region="br-pt", max_results=5)
+        if noticias_brutas:
+            for n in noticias_brutas:
+                noticias_limpas.append({
+                    "titulo": n.get("title", "Sem Título"),
+                    "fonte": n.get("source", "Mídia Externa"),
+                    "data": n.get("date", "Recente"),
+                    "url": n.get("url", "#")
+                })
+    except Exception as e:
+        print(f"Erro ao buscar noticias: {e}")
+
     dado_completo = {
         "id": id,
         "nome": nome_completo,
@@ -242,7 +257,8 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         ],
         "redFlags": historico_redflags,
         "empresas": empresas_reais,
-        "projetos": projetos_reais
+        "projetos": projetos_reais,
+        "noticias": noticias_limpas
     }
 
     return {"status": "sucesso", "dados": dado_completo}
