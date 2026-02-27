@@ -135,6 +135,11 @@ async def iniciar_investigacao(politico: PoliticoRequest):
             "resultado_gamificacao": resultado_game
         }
         
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(ve)
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

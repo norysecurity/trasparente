@@ -33,11 +33,15 @@ export default function Home() {
         body: JSON.stringify({ nome: buscaNome, cpf_cnpj: buscaDoc || "00000000000" }),
       });
 
-      if (!res.ok) throw new Error("Falha na comunicação com o Motor de Auditoria.");
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => null);
+        throw new Error(errorData?.detail || "Falha na comunicação com o Motor de Auditoria.");
+      }
+
       const data = await res.json();
       setResultado(data);
     } catch (err: any) {
-      setErro(err.message || "Erro desconhecido.");
+      setErro(err.message || "Erro desconhecido. Tente outro nome.");
     } finally {
       setLoading(false);
     }
@@ -177,7 +181,7 @@ export default function Home() {
                   <div className="bg-neutral-900/80 border border-neutral-800 rounded-2xl p-6 flex flex-col items-center text-center">
                     <h3 className="text-neutral-400 text-xs uppercase tracking-wider font-bold mb-1">Score Transparência</h3>
                     <div className={`text-5xl font-black ${resultado.resultado_gamificacao.score_auditoria >= 700 ? "text-emerald-400" :
-                        resultado.resultado_gamificacao.score_auditoria >= 400 ? "text-yellow-400" : "text-red-400"
+                      resultado.resultado_gamificacao.score_auditoria >= 400 ? "text-yellow-400" : "text-red-400"
                       }`}>
                       {resultado.resultado_gamificacao.score_auditoria}
                     </div>
@@ -186,10 +190,10 @@ export default function Home() {
                   <div className="bg-neutral-900/80 border border-neutral-800 rounded-2xl p-6 flex flex-col items-center justify-center text-center">
                     <h3 className="text-neutral-400 text-xs uppercase tracking-wider font-bold mb-3">Status</h3>
                     <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full font-bold text-xs ${resultado.resultado_gamificacao.status_jogador.includes("Limpa")
-                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                        : resultado.resultado_gamificacao.status_jogador.includes("Suspeito")
-                          ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
-                          : "bg-red-500/10 text-red-400 border border-red-500/20"
+                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                      : resultado.resultado_gamificacao.status_jogador.includes("Suspeito")
+                        ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+                        : "bg-red-500/10 text-red-400 border border-red-500/20"
                       }`}>
                       {resultado.resultado_gamificacao.status_jogador.includes("Limpa") ? <ShieldCheck className="w-3 h-3" /> : <ShieldAlert className="w-3 h-3" />}
                       {resultado.resultado_gamificacao.status_jogador}
