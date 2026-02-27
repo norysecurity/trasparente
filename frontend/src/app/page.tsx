@@ -17,8 +17,6 @@ export default function Home() {
   const [resultados, setResultados] = useState<any[]>([]);
   const [executivo, setExecutivo] = useState<any>(null);
   const [erro, setErro] = useState("");
-
-  const [erro, setErro] = useState("");
   useEffect(() => {
     fetch("http://localhost:8000/api/executivo")
       .then(res => res.json())
@@ -176,7 +174,5 @@ export default function Home() {
         </div>
       </main>
     </div>
-      </main >
-    </div >
   );
 }
