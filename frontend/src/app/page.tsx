@@ -151,12 +151,16 @@ export default function Home() {
               <ZoomableGroup zoom={1}>
                 <Geographies geography={geoUrl}>
                   {({ geographies }) =>
-                    geographies.map((geo) => (
-                      <Geography key={geo.rsmKey} geography={geo} onClick={() => handleStateClick(geo)} style={{
-                        default: { fill: "#171717", stroke: "#333", strokeWidth: 0.5 },
-                        hover: { fill: "#a855f7", stroke: "#a855f7", cursor: "pointer", transition: "all 250ms" },
-                      }} />
-                    ))
+                    geographies.map((geo) => {
+                      const isSelected = estadoSelecionado === geo.properties.name;
+                      return (
+                        <Geography key={geo.rsmKey} geography={geo} onClick={() => handleStateClick(geo)} style={{
+                          default: { fill: isSelected ? "#22c55e" : "#171717", stroke: "#333", strokeWidth: 0.5, outline: "none" },
+                          hover: { fill: "#a855f7", stroke: "#a855f7", cursor: "pointer", transition: "all 250ms", outline: "none" },
+                          pressed: { outline: "none" }
+                        }} />
+                      );
+                    })
                   }
                 </Geographies>
               </ZoomableGroup>

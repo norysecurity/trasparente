@@ -112,7 +112,7 @@ export default function PoliticoPerfil() {
                 </motion.div>
 
                 {/* 4 COLUNAS GRID */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-12">
 
                     {/* COLUNA 1: ATUAÇÃO */}
                     <motion.div
@@ -232,9 +232,10 @@ export default function PoliticoPerfil() {
                             href="http://localhost:7474"
                             target="_blank"
                             rel="noreferrer"
-                            className="block text-center w-full mt-6 py-3 border border-purple-500/30 text-purple-400 font-bold rounded-xl text-sm hover:bg-purple-500 hover:text-white transition shadow-[0_0_15px_rgba(168,85,247,0.1)] hover:shadow-[0_0_20px_rgba(168,85,247,0.4)]"
+                            className="block text-center w-full mt-6 py-3 border border-purple-500/30 text-purple-400 font-bold rounded-xl text-sm hover:bg-purple-500 hover:text-white transition shadow-[0_0_15px_rgba(168,85,247,0.1)] hover:shadow-[0_0_20px_rgba(168,85,247,0.4)] flex flex-col items-center justify-center gap-1 group"
                         >
-                            Abrir Teia no Neo4j
+                            <span>Abrir Teia no Neo4j</span>
+                            <span className="text-[10px] font-normal opacity-70 group-hover:opacity-100 transition-opacity">Ver conexões e laranjas no banco de grafos</span>
                         </a>
                     </motion.div>
 

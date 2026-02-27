@@ -21,6 +21,19 @@ app.add_middleware(
 
 CAMARA_API = "https://dadosabertos.camara.leg.br/api/v2/deputados"
 
+CACHE_POLITICOS = {}
+
+def obter_score_dossie(id_politico):
+    caminho = f"dossies/dossie_{id_politico}.json"
+    if os.path.exists(caminho):
+        try:
+            with open(caminho, "r", encoding="utf-8") as f:
+                dossie = json.load(f)
+                return max(0, 1000 - dossie.get("pontos_perdidos", 0))
+        except:
+            pass
+    return "Pendente"
+
 # Mapeamento de Fontes: Nomenclatura Editorial Neutra/Acadêmica
 MAPA_LINHA_EDITORIAL = {
     # Mídia Progressista (Antiga Esquerda)
@@ -74,7 +87,7 @@ def buscar_presidenciais():
             "siglaUf": "BR",
             "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg/800px-Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg",
             "nivel_boss": "👑 Chefão Supremo",
-            "score_auditoria": random.randint(300, 800)
+            "score_auditoria": obter_score_dossie(900001)
         },
         {
             "id": 900002,
@@ -84,7 +97,7 @@ def buscar_presidenciais():
             "siglaUf": "SP",
             "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Tarc%C3%ADsio_Gomes_de_Freitas.jpg/800px-Tarc%C3%ADsio_Gomes_de_Freitas.jpg",
             "nivel_boss": "👑 Chefão Supremo",
-            "score_auditoria": random.randint(500, 900)
+            "score_auditoria": obter_score_dossie(900002)
         },
         {
             "id": 900003,
@@ -94,7 +107,7 @@ def buscar_presidenciais():
             "siglaUf": "MG",
             "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Romeu_Zema_Governador_do_Estado_de_Minas_Gerais_-_foto_Pedro_Gontijo.jpg/800px-Romeu_Zema_Governador_do_Estado_de_Minas_Gerais_-_foto_Pedro_Gontijo.jpg",
             "nivel_boss": "👑 Chefão Supremo",
-            "score_auditoria": random.randint(600, 950)
+            "score_auditoria": obter_score_dossie(900003)
         },
         {
             "id": 900004,
@@ -104,7 +117,7 @@ def buscar_presidenciais():
             "siglaUf": "GO",
             "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Ronaldo_Caiado%2C_Governador_do_Estado_de_Goi%C3%A1s.png/800px-Ronaldo_Caiado%2C_Governador_do_Estado_de_Goi%C3%A1s.png",
             "nivel_boss": "👑 Chefão Supremo",
-            "score_auditoria": random.randint(500, 900)
+            "score_auditoria": obter_score_dossie(900004)
         }
     ]
     return {"status": "sucesso", "dados": candidatos}
@@ -127,7 +140,7 @@ def buscar_por_estado(uf: str):
         resultados = []
         for d in dados:
             d['cargo'] = "Deputado Federal"
-            d['score_auditoria'] = random.randint(400, 990)
+            d['score_auditoria'] = obter_score_dossie(d.get('id'))
             d = adicionar_nivel_boss(d)
             resultados.append(d)
             
@@ -146,7 +159,7 @@ def buscar_politico(nome: str):
         
         for d in dados:
             d['cargo'] = "Deputado Federal"
-            d['score_auditoria'] = random.randint(400, 990)
+            d['score_auditoria'] = obter_score_dossie(d.get('id'))
             d = adicionar_nivel_boss(d)
             
         return {"status": "sucesso", "dados": dados}
@@ -163,6 +176,14 @@ def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, c
 
 @app.get("/api/politico/detalhes/{id}")
 def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
+    if id in CACHE_POLITICOS:
+        dado_cache = CACHE_POLITICOS[id]
+        score_atual = obter_score_dossie(id)
+        if score_atual != "Pendente":
+            dado_cache["score_auditoria"] = score_atual
+            
+        return {"status": "sucesso", "dados": dado_cache, "cached": True}
+
     # Se for um ID simulado de Presidenciável
     presidenciais_simulados = {
         900001: {"nome": "Luiz Inácio Lula da Silva", "cargo": "Presidente", "partido": "PT", "uf": "BR", "foto": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg/800px-Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg"},
@@ -197,7 +218,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
             foto = ultimo_status.get("urlFoto", "")
             cpf_oculto = api_dado.get("cpf", "00000000000")
 
-            res_despesas = requests.get(f"{CAMARA_API}/{id}/despesas", params={"itens": 5, "ordem": "DESC", "ordenarPor": "dataDocumento"})
+            res_despesas = requests.get(f"{CAMARA_API}/{id}/despesas", params={"itens": 100, "ordem": "DESC", "ordenarPor": "dataDocumento"})
             despesas_data = res_despesas.json().get("dados", []) if res_despesas.status_code == 200 else []
 
             res_orgaos = requests.get(f"{CAMARA_API}/{id}/orgaos", params={"itens": 5, "ordem": "DESC", "ordenarPor": "idOrgao"})
@@ -255,9 +276,13 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         except:
             pass
 
+    score_final = max(0, score_base) if os.path.exists(caminho_dossie) else "Pendente"
+
     explicacao_score = "Comportamento dentro do padrão no histórico analisado."
     if motivos_deducao:
         explicacao_score = f"Deduções aplicadas: {', '.join(motivos_deducao)}."
+    elif score_final == "Pendente":
+        explicacao_score = "O Worker OSINT ainda está auditando este político. Aguarde."
     
     if cnpjs_para_osint:
         background_tasks.add_task(disparar_worker_assincrono, id, nome_completo, cpf_oculto, cnpjs_para_osint)
@@ -294,7 +319,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         "partido": partido,
         "uf": uf,
         "foto": foto,
-        "score_auditoria": max(0, score_base),
+        "score_auditoria": score_final,
         "explicacao_score": explicacao_score,
         "badges": [
             {"id": 1, "nome": "Auditoria IA Iniciada", "color": "bg-purple-500/10 border-purple-500/50 text-purple-500", "icon": "Fingerprint"}
@@ -304,7 +329,8 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         "projetos": projetos_reais,
         "noticias": noticias_limpas
     }
-
+    
+    CACHE_POLITICOS[id] = dado_completo
     return {"status": "sucesso", "dados": dado_completo}
 
 if __name__ == "__main__":
