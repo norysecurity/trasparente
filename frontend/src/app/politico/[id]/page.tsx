@@ -113,7 +113,7 @@ export default function PoliticoPerfil() {
                                     cx="64" cy="64" r="56"
                                     className={`fill-none stroke-[8] ${politicoData.score_auditoria >= 700 ? 'stroke-emerald-500' : politicoData.score_auditoria >= 400 ? 'stroke-yellow-500' : 'stroke-red-500'}`}
                                     style={{ strokeLinecap: 'round' }}
-                                ></circle>
+                                ></motion.circle>
                             </svg>
                             <div className="absolute inset-0 flex flex-col items-center justify-center">
                                 <span className={`text-4xl font-black ${politicoData.score_auditoria >= 700 ? 'text-emerald-500' : politicoData.score_auditoria >= 400 ? 'text-yellow-500' : 'text-red-500'}`}>{politicoData.score_auditoria}</span>
