@@ -123,7 +123,7 @@ export default function PoliticoPerfil() {
                             <FileText className="w-5 h-5" /> Comissões
                         </h3>
                         {politicoData.projetos && politicoData.projetos.length > 0 ? (
-                            <div className="space-y-6">
+                            <div className="space-y-6 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
                                 {politicoData.projetos.map((proj: any, idx: number) => (
                                     <div key={idx}>
                                         <div className="flex justify-between text-sm mb-1">
@@ -156,7 +156,7 @@ export default function PoliticoPerfil() {
                         </h3>
 
                         {politicoData.redFlags && politicoData.redFlags.length > 0 ? (
-                            <div className="space-y-6 relative before:absolute before:inset-0 before:ml-2.5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-neutral-800 before:to-transparent">
+                            <div className="space-y-6 relative max-h-[400px] overflow-y-auto custom-scrollbar pr-2 overflow-x-hidden before:absolute before:inset-0 before:ml-2.5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-neutral-800 before:to-transparent">
                                 {politicoData.redFlags.map((flag: any, idx: number) => (
                                     <motion.div
                                         initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.5 + (idx * 0.1) }}
@@ -198,7 +198,7 @@ export default function PoliticoPerfil() {
                         </h3>
 
                         {politicoData.empresas && politicoData.empresas.length > 0 ? (
-                            <div className="space-y-4">
+                            <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
                                 {politicoData.empresas.map((emp: any, idx: number) => (
                                     <motion.div
                                         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 + (idx * 0.1) }}
@@ -239,6 +239,22 @@ export default function PoliticoPerfil() {
                     </motion.div>
 
                 </div>
+
+                {/* BOTÃO PARA DOSSIÊ COMPLETO */}
+                <motion.div
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.8 }}
+                    className="mt-12 flex justify-center"
+                >
+                    <button
+                        onClick={() => router.push(`/politico/${idPolitico}/relatorio`)}
+                        className="bg-red-600 hover:bg-red-500 text-white font-black text-xl md:text-2xl px-12 py-6 rounded-2xl flex items-center justify-center gap-4 transition-all shadow-[0_0_30px_rgba(220,38,38,0.3)] hover:shadow-[0_0_50px_rgba(220,38,38,0.6)] animate-pulse hover:animate-none group hover:scale-105"
+                    >
+                        <ShieldAlert className="w-8 h-8 group-hover:scale-110 transition-transform" />
+                        🚨 ABRIR DOSSIÊ DE AUDITORIA COMPLETA
+                    </button>
+                </motion.div>
             </main>
         </div>
     );
