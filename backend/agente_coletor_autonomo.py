@@ -3,10 +3,11 @@ import os
 import re
 import requests
 import fitz  # PyMuPDF
-import pandas as pd
+import json
 from datetime import datetime
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
+from duckduckgo_search import DDGS
 
 load_dotenv()
 
@@ -28,16 +29,11 @@ def get_neo4j_driver():
         return None
 
 async def buscar_socios_receita(cnpj: str) -> list:
-    """
-    Objetivo: Descobrir familiares e laranjas usando a API pública do BrasilAPI.
-    Retorno: Lista com nomes e cargos dos sócios do QSA.
-    """
     print(f"🔍 Buscando Quadro de Sócios e Administradores (QSA) para o CNPJ: {cnpj}")
     cnpj_limpo = re.sub(r'[^0-9]', '', cnpj)
     
     url = f"https://brasilapi.com.br/api/cnpj/v1/{cnpj_limpo}"
     try:
-        # Executa requisição assíncrona usando o loop do asyncio
         resposta = await asyncio.to_thread(requests.get, url, timeout=10)
         if resposta.status_code == 200:
             dados = resposta.json()
@@ -49,20 +45,14 @@ async def buscar_socios_receita(cnpj: str) -> list:
             print(f"  ❌ Erro ao buscar QSA (Status: {resposta.status_code})")
             return []
     except Exception as e:
-        print(f"  ⚠️ Falha de comunicação na API da Receita: {e}")
+        print(f"  ⚠️ Falha na API da Receita: {e}")
         return []
 
 async def buscar_contratos_portal_transparencia(cnpj: str) -> list:
-    """
-    Objetivo: Ver se a empresa do familiar recebeu dinheiro do governo via Portal da Transparência.
-    """
     print(f"💰 Verificando Recebimento de Verbas Públicas para o CNPJ: {cnpj}")
     if not CGU_API_KEY:
-        print("  ⚠️ CGU_API_KEY não configurada. Simulando retorno.")
-        # Simulação para desenvolvimento
-        return [
-            {"orgao": "Ministério da Saúde", "valor": "R$ 1.500.000,00", "data": "2023-05-10"}
-        ]
+        print("  ⚠️ CGU_API_KEY não configurada. Simulação ativada.")
+        return []
         
     url = "https://api.portaldatransparencia.gov.br/api-de-dados/contratos"
     headers = {"chave-api-dados": CGU_API_KEY}
@@ -86,168 +76,147 @@ async def buscar_contratos_portal_transparencia(cnpj: str) -> list:
         print(f"  ⚠️ Falha ao buscar contratos: {e}")
         return []
 
-async def raspar_diario_oficial_uniao_playwright(termo_busca: str):
+async def pesquisar_historico_criminal_web(nome_politico: str):
     """
-    Objetivo: Raspar edições do Diário Oficial usando automação Headless.
-    Baixa o PDF do resultado, extrai o texto com PyMuPDF e caça CNPJs e Valores (Licitações).
+    Pesquisa em tempo real o histórico do político na Web (DDG) focando na PF e STF.
     """
-    print(f"📰 Iniciando OSINT no Diário Oficial da União (Termo: {termo_busca})")
-    cnpjs_detectados = set()
-    valores_detectados = set()
-    
-    async with async_playwright() as p:
-        navegador = await p.chromium.launch(headless=True)
-        pagina = await navegador.new_page()
+    print(f"🌐 Iniciando OSINT na Web Aberta (DuckDuckGo) para: {nome_politico}")
+    query = f'"{nome_politico}" investigações corrupção "STF" OR "Polícia Federal"'
+    resultados = []
+    try:
+        def fetch_ddgs():
+            with DDGS() as ddgs:
+                return list(ddgs.text(query, region='br-pt', safesearch='off', max_results=5))
         
-        try:
-            # Acessando site de busca da Imprensa Nacional (Simulador Simplificado)
-            print("  -> Navegando para in.gov.br...")
-            # Note: A busca no DOU costuma ser complexa; esta parte simula a busca de um documento em PDF
-            # Na versão final em produção, o scraper iria navegar nos inputs e clicar em buscar
-            # Como a URL do in.gov muda muito, vamos simular a extração de um arquivo PDF local/vazio para a prova de conceito
+        resultados = await asyncio.to_thread(fetch_ddgs)
+    except Exception as e:
+        print(f"  ❌ Erro na busca web: {e}")
+    return resultados
+
+def avaliar_red_flags_ia(nome_politico: str, resultados_web: list):
+    """
+    Processa NLP/Regex nos resultados. Subtrai até 200 pontos de SCORE SERASA por cada caso letal.
+    """
+    red_flags = []
+    pontos_perdidos = 0
+    palavras_chave = ["lava jato", "propina", "inquérito", "denunciado", "jbs", "stf", "polícia federal", "desvio", "corrupção", "condenado", "lavagem"]
+    
+    for r in resultados_web:
+        texto = str(r.get('title', '') + " " + r.get('body', '')).lower()
+        title = r.get('title', 'Notícia Investigativa')
+        url = r.get('href', '')
+        
+        encontrado = [p for p in palavras_chave if p in texto]
+        if encontrado:
+            motivo = f"Palavras-chave detectadas na reportagem: {', '.join(encontrado)}."
+            red_flags.append({
+                "data": datetime.now().strftime("%d/%m/%Y"),
+                "titulo": title,
+                "desc": motivo,
+                "fonte": url
+            })
+            pontos_perdidos += 200
+            print(f"  🚨 ALERTA CRIMINAL: {title}")
             
-            # Simulando que o playwright encontrou o link do PDF da licitação e efetuou download
-            pdf_path = "extrato_contrato_mock.pdf"
-            
-            # Criando um PDF falso com dados de corrupção usando fitz para o teste se não existir
-            if not os.path.exists(pdf_path):
-                doc = fitz.open()
-                page = doc.new_page()
-                page.insert_text((50, 50), f"EXTRATO DE CONTRATO Nº 15/2023. O {termo_busca} assinou " 
-                                           f"contrato com a EMPRESA FANTASMA S/A, CNPJ: 12.345.678/0001-90, no valor de R$ 5.430.200,50.")
-                doc.save(pdf_path)
-            
-            # --- Início da Extração PDF (PyMuPDF) ---
-            print("  -> Extraindo texto do PDF Oficial...")
-            doc = fitz.open(pdf_path)
-            texto_completo = ""
-            for num_pagina in range(len(doc)):
-                pagina_pdf = doc.load_page(num_pagina)
-                texto_completo += pagina_pdf.get_text("text") + " "
-            
-            # --- Início da Caça às Bruxas (Regex) ---
-            print("  -> Minerando Padrões Suspeitos via Regex...")
-            # Padrão CNPJ: 00.000.000/0000-00
-            padrao_cnpj = re.compile(r'\d{2}\.\d{3}\.\d{3}/\d{4}\-\d{2}')
-            # Padrão Valores em Reais: R$ 1.000,00 ou R$ 100.000,00
-            padrao_valor = re.compile(r'R\$\s?\d{1,3}(?:\.\d{3})*,\d{2}')
-            
-            cnpjs_detectados.update(padrao_cnpj.findall(texto_completo))
-            valores_detectados.update(padrao_valor.findall(texto_completo))
-            
-            print(f"  🚨 Alerta: Identificados {len(cnpjs_detectados)} CNPJs e {len(valores_detectados)} Montantes Financeiros no texto publicado.")
-            
-        except Exception as e:
-            print(f"  ❌ Erro durante a automação Crawler: {e}")
-        finally:
-            await navegador.close()
-            
-    return list(cnpjs_detectados), list(valores_detectados)
+    return red_flags, pontos_perdidos
 
 def salvar_malha_fina_neo4j(grafos_dados: dict):
-    """
-    Grava os nós e as arestas de relacionamento cruzado banco de grafos Neo4j.
-    """
     driver = get_neo4j_driver()
     if not driver:
         print("📛 Neo4j Offline. Os relacionamentos não serão salvaguardados.")
         return
 
     query = """
-    // 1. Cria Político
     MERGE (p:Politico {nome: $politico_nome})
     ON CREATE SET p.cpf = $politico_cpf, p.auditado_em = timestamp()
     
-    // 2. Cria Empresas Declaradas pelo TSE
     FOREACH (emp IN $empresas |
         MERGE (e:Empresa {cnpj: emp.cnpj})
         ON CREATE SET e.nome = emp.nome
         MERGE (p)-[:DECLARA_SER_DONO_DE]->(e)
     )
     
-    // 3. Cria Familiares/Sócios
     FOREACH (socio IN $socios |
         MERGE (s:Pessoa {nome: socio.nome})
         MERGE (p)-[:TEM_ASSOCIACAO_COM {cargo: socio.cargo}]->(s)
         MERGE (s)-[:OPERA_NA_EMPRESA]->(e) 
     )
     
-    // 4. Cria Licitações/Órgãos (Rabo Preso)
-    FOREACH (contrato IN $contratos |
-        MERGE (o:Orgao {nome: contrato.orgao})
-        MERGE (c:Contrato {valor: contrato.valor, data: contrato.data})
-        MERGE (e)-[:RECEBEU_VERBA_DE]->(c)-[:PAGO_POR]->(o)
-        
-        // Se a empresa ligada ao politico recebeu verba, marca a bandeira vermelha
-        MERGE (p)-[:ALERTA_VERMELHO {motivo: "Empresa ligada participou de licitação"}]->(c)
+    FOREACH (flag IN $red_flags |
+        MERGE (r:RedFlag {url: flag.fonte})
+        ON CREATE SET r.titulo = flag.titulo, r.data = flag.data
+        MERGE (p)-[:ALVO_EM]->(r)
     )
     """
     try:
         with driver.session() as session:
             session.run(query, **grafos_dados)
-            print(f"🕸️ Teia de Relacionamentos do Político {grafos_dados['politico_nome']} atualizada no Neo4j com Sucesso!")
+            print(f"🕸️ Teia Neo4j atualizada com Sucesso para {grafos_dados['politico_nome']}!")
     except Exception as e:
         print(f"Erro ao salvar grafos: {e}")
     finally:
         driver.close()
 
-async def auditar_malha_fina(nome_politico: str, cpf_politico: str, cnpjs_reais: list = None):
-    """
-    Função Mestra que orquestra a inteligência investigativa:
-    1. Lê CNPJs reais de despesas -> 2. Busca API Receita (Laranjas) -> 3. Busca Licitações (Portal) -> 4. Cruza no Grafo Neo4j.
-    """
+async def auditar_malha_fina(id_politico: int, nome_politico: str, cpf_politico: str, cnpjs_reais: list = None):
     print(f"\n=======================================================")
     print(f"🕵️  WORKER INICIANDO AUDITORIA: {nome_politico.upper()}")
     print(f"=======================================================")
     
-    if not cnpjs_reais:
-        print("📋 Sem CNPJs oficiais. Usando CNPJ de validação.")
-        cnpjs_reais = ["00000000000191"] # CNPJ do BB para teste
-        
-    print(f"📋 Analisando {len(cnpjs_reais)} CNPJs vinculados às verbas do mandato...")
-    empresas_do_politico = [{"nome": f"Fornecedor {cnpj}", "cnpj": cnpj} for cnpj in cnpjs_reais]
+    # 1. Search criminal history Web openly
+    resultados_web = await pesquisar_historico_criminal_web(nome_politico)
+    red_flags_encontradas, pontos_perdidos = avaliar_red_flags_ia(nome_politico, resultados_web)
     
+    if not cnpjs_reais or cnpjs_reais == [""]:
+        print("📋 Sem CNPJs na lista. Avançando para consolidação...")
+        cnpjs_reais = []
+        
+    empresas_do_politico = [{"nome": f"Fornecedor {cnpj}", "cnpj": cnpj} for cnpj in cnpjs_reais]
     todos_socios = []
     todos_contratos = []
     
-    # b) Raspa Sócios e Colaboradores ligados às empresas do Político
     for empresa in empresas_do_politico:
         socios = await buscar_socios_receita(empresa["cnpj"])
         todos_socios.extend(socios)
-        
-        # c) Raspa licitações das empresas do Político ou de Laranjas
         contratos = await buscar_contratos_portal_transparencia(empresa["cnpj"])
         todos_contratos.extend(contratos)
         
-    # Extra) Busca no Diário Oficial por Menções
-    cnpjs_dou, valores_dou = await raspar_diario_oficial_uniao_playwright(nome_politico)
-    
-    # d) Conecta no Neo4j e Persiste Grafo Complexo
     dados_grafo = {
         "politico_nome": nome_politico,
         "politico_cpf": cpf_politico,
         "empresas": empresas_do_politico,
         "socios": todos_socios,
-        "contratos": todos_contratos
+        "contratos": todos_contratos,
+        "red_flags": red_flags_encontradas
     }
     
     salvar_malha_fina_neo4j(dados_grafo)
+    
+    # Criar e salvar dossie num ficheiro json local para o main.py consumir
+    os.makedirs("dossies", exist_ok=True)
+    dossie = {
+        "id_politico": id_politico,
+        "redFlags": red_flags_encontradas,
+        "pontos_perdidos": pontos_perdidos,
+        "data_auditoria": datetime.now().isoformat()
+    }
+    
+    caminho_arquivo = f"dossies/dossie_{id_politico}.json"
+    with open(caminho_arquivo, "w", encoding="utf-8") as f:
+        json.dump(dossie, f, ensure_ascii=False, indent=4)
+        
+    print(f"✅ Dossiê JSON salvo com sucesso em {caminho_arquivo}")
     print(f"✅ Auditoria Concluída: {nome_politico}\n")
 
 async def worker_noturno():
-    """
-    Loop assíncrono projetado para rodar em standalone e analisar filas do Redis/RabbitMQ.
-    """
     print("🌙 Inicializando Worker Autônomo de Varredura Noturna OSINT...")
     alvos = [
-        {"nome": "Luiz Inácio Lula da Silva", "cpf": "000.000.000-01"},
-        {"nome": "Romeu Zema", "cpf": "111.111.111-02"},
+        {"id": 900001, "nome": "Luiz Inácio Lula da Silva", "cpf": "000.000.000-01"},
+        {"id": 900002, "nome": "Tarcísio de Freitas", "cpf": "111.111.111-02"},
     ]
     
     for alvo in alvos:
-        await auditar_malha_fina(alvo["nome"], alvo["cpf"])
-        await asyncio.sleep(2) # Respeitar limites das APIs
+        await auditar_malha_fina(alvo["id"], alvo["nome"], alvo["cpf"], [])
+        await asyncio.sleep(2)
 
 if __name__ == "__main__":
-    # Roda o worker em ambiente izolado
     asyncio.run(worker_noturno())
