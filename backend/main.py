@@ -59,7 +59,7 @@ def buscar_politico(nome: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def disparar_worker_assincrono(nome_politico: str, cpf: str):
+def disparar_worker_assincrono(nome_politico: str, cpf: str, cnpjs_suspeitos: list):
     """
     Função Helper para rodar a rotina de automação no event loop principal do Worker.
     """
@@ -67,7 +67,7 @@ def disparar_worker_assincrono(nome_politico: str, cpf: str):
         # Cria ou reutiliza o loop do asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(auditar_malha_fina(nome_politico, cpf))
+        loop.run_until_complete(auditar_malha_fina(nome_politico, cpf, cnpjs_suspeitos))
     except Exception as e:
         print(f"Erro no Worker Síncrono: {e}")
 
@@ -84,7 +84,12 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         despesas_data = res_despesas.json().get("dados", []) if res_despesas.status_code == 200 else []
         
         empresas_reais = []
+        cnpjs_para_osint = []
         for d in despesas_data:
+            cnpj_raw = str(d.get("cnpjCpfFornecedor", "")).replace(".", "").replace("-", "").replace("/", "").strip()
+            if cnpj_raw and len(cnpj_raw) == 14:
+                cnpjs_para_osint.append(cnpj_raw)
+
             empresas_reais.append({
                 "nome": d.get("nomeFornecedor", "Fornecedor Governamental"),
                 "cargo": d.get("tipoDespesa", "Contrato de Terceiro"),
@@ -109,7 +114,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         cpf_oculto = dado_basico.get("cpf", "000.000.000-00")
         
         # 5. ENGATILHA O ROBO DA VERDADE (OSINT - Neo4j / Diário Oficial / FitZ PDF Scanner) EM SEGUNDO PLANO
-        background_tasks.add_task(disparar_worker_assincrono, nome_completo, cpf_oculto)
+        background_tasks.add_task(disparar_worker_assincrono, nome_completo, cpf_oculto, cnpjs_para_osint)
 
         # 6. Monta o Super Objeto Final de Resposta Genuína
         dado_completo = {

@@ -191,18 +191,21 @@ def salvar_malha_fina_neo4j(grafos_dados: dict):
     finally:
         driver.close()
 
-async def auditar_malha_fina(nome_politico: str, cpf_politico: str):
+async def auditar_malha_fina(nome_politico: str, cpf_politico: str, cnpjs_reais: list = None):
     """
     Função Mestra que orquestra a inteligência investigativa:
-    1. Simula TSE -> 2. Busca API Receita (Laranjas) -> 3. Busca Licitações (Portal) -> 4. Cruza no Grafo Neo4j.
+    1. Lê CNPJs reais de despesas -> 2. Busca API Receita (Laranjas) -> 3. Busca Licitações (Portal) -> 4. Cruza no Grafo Neo4j.
     """
     print(f"\n=======================================================")
     print(f"🕵️  WORKER INICIANDO AUDITORIA: {nome_politico.upper()}")
     print(f"=======================================================")
     
-    # a) Simula TSE (O Político declarou uma empresa)
-    print("📋 Consultando Máquina do TSE (DivulgaCand)...")
-    empresas_do_politico = [{"nome": "Empresa Fictícia Limpeza Lda", "cnpj": "12.345.678/0001-90"}]
+    if not cnpjs_reais:
+        print("📋 Sem CNPJs oficiais. Usando CNPJ de validação.")
+        cnpjs_reais = ["00000000000191"] # CNPJ do BB para teste
+        
+    print(f"📋 Analisando {len(cnpjs_reais)} CNPJs vinculados às verbas do mandato...")
+    empresas_do_politico = [{"nome": f"Fornecedor {cnpj}", "cnpj": cnpj} for cnpj in cnpjs_reais]
     
     todos_socios = []
     todos_contratos = []
