@@ -4,9 +4,12 @@ import { useState, useEffect } from "react";
 import { Search, MapPin, User, ShieldAlert, Filter, AlertCircle, X, ShieldCheck } from "lucide-react";
 import { ComposableMap, Geographies, Geography, ZoomableGroup } from "react-simple-maps";
 
+import { useRouter } from "next/navigation";
+
 const geoUrl = "/brazil-states.json";
 
 export default function Home() {
+  const router = useRouter();
   const [buscaNome, setBuscaNome] = useState("");
   const [cargoFiltro, setCargoFiltro] = useState("");
   const [estadoSelecionado, setEstadoSelecionado] = useState("");
@@ -15,9 +18,7 @@ export default function Home() {
   const [executivo, setExecutivo] = useState<any>(null);
   const [erro, setErro] = useState("");
 
-  // Estado para o Modal do Dossiê
-  const [politicoSelecionado, setPoliticoSelecionado] = useState<any>(null);
-
+  const [erro, setErro] = useState("");
   useEffect(() => {
     fetch("http://localhost:8000/api/executivo")
       .then(res => res.json())
@@ -152,7 +153,7 @@ export default function Home() {
               {resultadosFiltrados.map((pol, index) => (
                 <div
                   key={pol.id}
-                  onClick={() => setPoliticoSelecionado(pol)}
+                  onClick={() => router.push(`/politico/${pol.id}`)}
                   className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 flex items-center gap-4 hover:border-emerald-500/50 transition cursor-pointer group"
                 >
                   <div className="font-black text-xl text-neutral-800 group-hover:text-emerald-500/30 w-6">{index + 1}</div>
@@ -174,51 +175,8 @@ export default function Home() {
           </div>
         </div>
       </main>
-
-      {/* MODAL DO DOSSIÊ (ABRE AO CLICAR NO POLÍTICO) */}
-      {politicoSelecionado && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl relative">
-            <button onClick={() => setPoliticoSelecionado(null)} className="absolute top-4 right-4 p-2 bg-neutral-800 hover:bg-neutral-700 rounded-full text-white transition z-10">
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="p-8">
-              <div className="flex gap-6 items-center mb-8 pb-8 border-b border-neutral-800">
-                <div className="w-24 h-24 rounded-full overflow-hidden bg-neutral-800 border-4 border-neutral-700">
-                  {politicoSelecionado.urlFoto ? <img src={politicoSelecionado.urlFoto} alt={politicoSelecionado.nome} className="w-full h-full object-cover" /> : <User className="w-16 h-16 m-4 text-neutral-600" />}
-                </div>
-                <div>
-                  <h2 className="text-3xl font-black text-white mb-1">{politicoSelecionado.nome}</h2>
-                  <p className="text-neutral-400">{politicoSelecionado.cargo} - {politicoSelecionado.siglaPartido}/{politicoSelecionado.siglaUf}</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-6">
-                <div className="bg-neutral-950 p-6 rounded-2xl border border-neutral-800 text-center flex flex-col items-center justify-center">
-                  <h3 className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-2">Score de Transparência</h3>
-                  <div className={`text-6xl font-black ${politicoSelecionado.score_auditoria >= 700 ? 'text-emerald-400' : politicoSelecionado.score_auditoria >= 400 ? 'text-yellow-400' : 'text-red-400'}`}>
-                    {politicoSelecionado.score_auditoria}
-                  </div>
-                </div>
-
-                <div className="bg-neutral-950 p-6 rounded-2xl border border-neutral-800 flex flex-col justify-center">
-                  <h3 className="text-sm font-bold text-purple-400 mb-2 flex items-center gap-2">🤖 Auditoria da IA</h3>
-                  {politicoSelecionado.score_auditoria < 500 ? (
-                    <p className="text-sm text-neutral-300">
-                      <strong className="text-red-400">ALERTA:</strong> A Inteligência Artificial detectou anomalias graves no histórico, incluindo investigações ativas ou conflitos de interesse em licitações.
-                    </p>
-                  ) : (
-                    <p className="text-sm text-neutral-300">
-                      <strong className="text-emerald-400">Ficha Limpa:</strong> Não foram detectadas irregularidades graves nas fontes oficiais conectadas.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
+      </main >
+    </div >
   );
 }
