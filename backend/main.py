@@ -1,11 +1,12 @@
 from fastapi import FastAPI, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 
-from .database.neo4j_conn import get_neo4j_connection
-from .skills_coleta import gerar_dossie_completo
-from .motor_ia_qwen import MotorIAQwen
-from .gamificacao import gerar_relatorio_gamificado
+from database.neo4j_conn import get_neo4j_connection
+from skills_coleta import gerar_dossie_completo
+from motor_ia_qwen import MotorIAQwen
+from gamificacao import gerar_relatorio_gamificado
 
 motor_ia = MotorIAQwen()
 neo4j_conn = None
@@ -31,6 +32,15 @@ app = FastAPI(
     description="API gamificada de auditoria política com Grafos e LLM (Qwen)",
     version="1.0.0",
     lifespan=lifespan
+)
+
+# Configuração de CORS para permitir acesso do Frontend (Next.js)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # URL do frontend em dev
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 class PoliticoRequest(BaseModel):
