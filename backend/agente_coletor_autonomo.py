@@ -58,6 +58,23 @@ async def consultar_cgu_pep(cpf: str) -> bool:
         print(f"Erro CGU PEP: {e}")
         return False
 
+async def consultar_cgu_emendas(cpf_autor: str) -> list:
+    """
+    Rastreia a liberação de Emendas Parlamentares (incluindo Emendas PIX) 
+    via Portal da Transparência API de Dados Abertos
+    """
+    cpf_limpo = "".join(filter(str.isdigit, cpf_autor))
+    ano_atual = datetime.now().year
+    url = f"https://api.portaldatransparencia.gov.br/api-de-dados/emendas?ano={ano_atual}&codigoAutor={cpf_limpo}&pagina=1"
+    print(f"💰 [CGU] Rastreando Emendas Parlamentares (PIX) para: {cpf_limpo}...")
+    try:
+        res = await asyncio.to_thread(requests.get, url, headers=HEADERS_CGU, timeout=10)
+        if res.status_code == 200:
+            return res.json()
+        return []
+    except Exception:
+        return []
+
 async def consultar_cgu_sancoes(cpf_ou_cnpj: str) -> list:
     """Consulta o Cadastro de Empresas Inidôneas e Suspensas (CEIS)"""
     doc_limpo = "".join(filter(str.isdigit, cpf_ou_cnpj))
@@ -226,6 +243,24 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
                 "fonte": "https://dadosabertos.ibama.gov.br/"
             })
 
+    # 4. RASTREIO DE EMENDAS PARLAMENTARES (PIX)
+    emendas = []
+    if cpf_real and cpf_real != "00000000000":
+        dados_emendas = await consultar_cgu_emendas(cpf_real)
+        for emenda in dados_emendas[:5]: # Top 5 recentes
+            valor = emenda.get("valorEmpenhado", 0)
+            if valor > 0:
+                emendas.append({
+                    "nome": f"Emenda: {emenda.get('funcao', 'Geral')} ({emenda.get('localidadeBeneficiada', 'BR')})",
+                    "cargo": f"Nº {emenda.get('codigoEmenda')}",
+                    "valor": f"R$ {valor:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
+                    "fonte": "https://portaldatransparencia.gov.br/"
+                })
+        
+        if len(emendas) > 0:
+             print(f"  💸 EMENDAS ENCONTRADAS: Injetando {len(emendas)} no Grafo Financeiro.")
+             empresas_detalhadas.extend(emendas)
+
     # Regra de Segurança: Score nunca é negativo
     score_final = 1000 - pontos_perdidos
     if score_final < 0: score_final = 0
@@ -233,7 +268,7 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
     print(f"✅ Auditoria GovTech Concluída!")
     print(f"📊 SCORE REAL CALCULADO: {score_final}")
     print(f"🚩 Red Flags Encontradas: {len(red_flags)}")
-    print(f"🏢 Empresas Mapeadas: {len(empresas_detalhadas)}\n")
+    print(f"🏢 Entidades Financeiras Mapeadas: {len(empresas_detalhadas)}\n")
 
     os.makedirs("dossies", exist_ok=True)
     dossie = {

@@ -108,13 +108,13 @@ def buscar_politico(nome: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, cnpjs_suspeitos: list, red_flags: list, pts_perdidos: int):
+def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, cnpjs_suspeitos: list, red_flags: list, pts_perdidos: int, despesas_brutas: list):
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(auditar_malha_fina_assincrona(
             id_politico, nome_politico, cpf_real=cpf, cnpjs_declarados=cnpjs_suspeitos, 
-            red_flags_iniciais=red_flags, pontos_perdidos_iniciais=pts_perdidos
+            red_flags_iniciais=red_flags, pontos_perdidos_iniciais=pts_perdidos, despesas_para_analise=despesas_brutas
         ))
     except Exception as e:
         print(f"Erro no Worker Síncrono: {e}")
@@ -238,8 +238,8 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
 
     explicacao_score = f"Deduções aplicadas: {', '.join(motivos_detalhados)}." if motivos_detalhados else "Comportamento aparentemente padrão no histórico analisado."
     
-    # Executa Worker Assíncrono da BrasilAPI/IBAMA em background sem congelar requisição
-    background_tasks.add_task(disparar_worker_assincrono, id, nome_completo, cpf_oculto, cnpjs_para_osint, historico_redflags, pontos_perdidos)
+    # Executa Worker Assíncrono da BrasilAPI/IBAMA em background repassando despesas
+    background_tasks.add_task(disparar_worker_assincrono, id, nome_completo, cpf_oculto, cnpjs_para_osint, historico_redflags, pontos_perdidos, despesas_data[:30])
 
     noticias_limpas = []
     try:
