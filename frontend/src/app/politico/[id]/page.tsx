@@ -3,8 +3,17 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ShieldAlert, Fingerprint, FileText, Banknote, Building2, Scale, ArrowLeft, ExternalLink, Newspaper, Bot } from "lucide-react";
+import { ShieldAlert, Fingerprint, FileText, Banknote, Building2, Scale, ArrowLeft, ExternalLink, Newspaper, Bot, Receipt, Gavel } from "lucide-react";
 import ReactMarkdown from 'react-markdown';
+import dynamic from 'next/dynamic';
+
+const GrafoCorrupcao = dynamic(() => import('@/components/GrafoCorrupcao'), {
+    ssr: false,
+    loading: () => <div className="w-full h-full flex flex-col items-center justify-center text-purple-500 bg-neutral-950 animate-pulse font-mono text-xs tracking-widest gap-4">
+        <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+        INICIALIZANDO MOTOR FÍSICO 2D...
+    </div>
+});
 
 export default function PoliticoPerfil() {
     const params = useParams();
@@ -159,16 +168,21 @@ export default function PoliticoPerfil() {
                         className="bg-neutral-900/30 border border-neutral-800 rounded-3xl p-6"
                     >
                         <h3 className="text-emerald-400 font-bold mb-6 flex items-center gap-2 border-b border-neutral-800 pb-4">
-                            <FileText className="w-5 h-5" /> Comissões
+                            <FileText className="w-5 h-5" /> Projetos de Lei
                         </h3>
                         {politicoData.projetos && politicoData.projetos.length > 0 ? (
                             <div className="space-y-6 max-h-[450px] overflow-y-auto custom-scrollbar pr-2">
                                 {politicoData.projetos.map((proj: any, idx: number) => (
                                     <div key={idx} className="hover:bg-neutral-800/50 p-2 rounded-lg transition-colors cursor-default">
                                         <div className="flex justify-between text-sm mb-1">
-                                            <span className="font-bold text-neutral-200 truncate pr-2">{proj.titulo}</span>
+                                            <span className="font-bold text-neutral-200 truncate pr-2" title={proj.titulo}>{proj.titulo}</span>
                                             <span className="text-neutral-500 flex-shrink-0">{proj.status}</span>
                                         </div>
+                                        {proj.fonte && (
+                                            <a href={proj.fonte} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[10px] uppercase text-emerald-500 hover:text-emerald-400 w-fit mb-2">
+                                                <ExternalLink className="w-3 h-3" /> Ver na Câmara
+                                            </a>
+                                        )}
                                         <div className="w-full bg-neutral-800 rounded-full h-1.5">
                                             <motion.div initial={{ width: 0 }} animate={{ width: `${proj.presence}%` }} transition={{ duration: 1, delay: 0.5 }} className="bg-emerald-500 h-1.5 rounded-full" />
                                         </div>
@@ -178,7 +192,7 @@ export default function PoliticoPerfil() {
                         ) : (
                             <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-neutral-700 bg-neutral-900/20 rounded-2xl">
                                 <FileText className="w-8 h-8 text-neutral-500 mb-2" />
-                                <span className="text-xs text-neutral-500 font-mono tracking-widest">Registros de comissões legislativas ausentes no ciclo atual.</span>
+                                <span className="text-xs text-neutral-500 font-mono tracking-widest">Registros de projetos legislativos ausentes no ciclo atual.</span>
                             </div>
                         )}
 
@@ -211,9 +225,15 @@ export default function PoliticoPerfil() {
                                             </div>
                                             <div className="text-neutral-500 text-xs">{flag.desc}</div>
                                             {flag.fonte && (
-                                                <a href={flag.fonte} target="_blank" rel="noreferrer" className="mt-3 flex items-center gap-1 text-[10px] uppercase text-red-400 hover:text-red-300">
-                                                    <ExternalLink className="w-3 h-3" /> Visualizar Fonte
-                                                </a>
+                                                flag.fonte.startsWith("http") ? (
+                                                    <a href={flag.fonte} target="_blank" rel="noreferrer" className="mt-3 flex items-center gap-1 text-[10px] uppercase text-red-400 hover:text-red-300">
+                                                        <ExternalLink className="w-3 h-3" /> Visualizar Fonte
+                                                    </a>
+                                                ) : (
+                                                    <span className="mt-3 flex items-center gap-1 text-[10px] uppercase text-red-500/70">
+                                                        <ExternalLink className="w-3 h-3" /> Fonte: {flag.fonte}
+                                                    </span>
+                                                )
                                             )}
                                         </div>
                                     </motion.div>
@@ -227,7 +247,7 @@ export default function PoliticoPerfil() {
                         )}
                     </motion.div>
 
-                    {/* COLUNA 3: TEIA EMPRESARIAL */}
+                    {/* COLUNA 3: TEIA EMPRESARIAL (MODIFICADA) */}
                     <motion.div
                         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.4 }}
                         className="bg-neutral-900/30 border border-neutral-800 rounded-3xl p-6"
@@ -236,44 +256,63 @@ export default function PoliticoPerfil() {
                             <Building2 className="w-5 h-5" /> Rabo Preso S/A
                         </h3>
 
-                        {politicoData.empresas && politicoData.empresas.length > 0 ? (
-                            <div className="space-y-4 max-h-[450px] overflow-y-auto custom-scrollbar pr-2">
-                                {politicoData.empresas.map((emp: any, idx: number) => (
-                                    <motion.div
-                                        initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 + (idx * 0.1) }}
-                                        key={idx} className="bg-neutral-950 border border-neutral-800 p-4 rounded-2xl flex items-center gap-4 group flex-wrap"
-                                    >
-                                        <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center text-purple-400 shrink-0">
-                                            <Banknote className="w-5 h-5" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <h4 className="font-bold text-neutral-200 text-sm leading-tight truncate">{emp.nome}</h4>
-                                            <p className="text-xs text-neutral-500 mt-1 truncate">{emp.cargo}</p>
-                                            <p className="font-mono text-xs text-purple-400 mt-1">{emp.valor}</p>
-                                        </div>
-                                        {emp.fonte && (
-                                            <div className="w-full mt-2 pt-2 border-t border-neutral-800">
-                                                <a href={emp.fonte} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[10px] uppercase text-purple-400 hover:text-purple-300 w-fit">
-                                                    <ExternalLink className="w-3 h-3" /> Visualizar Fonte Oficial
-                                                </a>
-                                            </div>
-                                        )}
-                                    </motion.div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-neutral-700 bg-neutral-900/20 rounded-2xl">
-                                <span className="text-xs text-neutral-500 font-mono tracking-widest">Nenhuma despesa ou empresa associada encontrada nos registros iniciais.</span>
-                            </div>
-                        )}
+                        <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 lg:col-span-1">
+                            <h3 className="text-xl font-bold flex items-center mb-6 text-neutral-300">
+                                <div className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center mr-3 border border-red-500/20">
+                                    <Scale className="w-4 h-4 text-red-400" />
+                                </div>
+                                "Rabo Preso" S/A
+                            </h3>
 
-                        <button
-                            onClick={() => setIsTeiaModalOpen(true)}
-                            className="block text-center w-full mt-6 py-3 border border-purple-500/30 text-purple-400 font-bold rounded-xl text-sm hover:bg-purple-500 hover:text-white transition shadow-[0_0_15px_rgba(168,85,247,0.1)] hover:shadow-[0_0_20px_rgba(168,85,247,0.4)] flex flex-col items-center justify-center gap-1 group"
-                        >
-                            <span>Gerar Teia de Corrupção</span>
-                            <span className="text-[10px] font-normal opacity-70 group-hover:opacity-100 transition-opacity">Visualizar ligações hierárquicas</span>
-                        </button>
+                            <div className="space-y-4">
+                                {politicoData.processos ? (
+                                    politicoData.processos.map((proc: any, idx: number) => (
+                                        <div key={idx} className="bg-neutral-950 border border-red-500/30 rounded-xl p-4 flex gap-4">
+                                            <div className="w-10 h-10 rounded-full bg-red-500/10 flex-shrink-0 flex items-center justify-center border border-red-500/20 mt-1">
+                                                <Gavel className="w-5 h-5 text-red-500" />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs text-red-400 font-black mb-1">
+                                                    {proc.data}
+                                                </p>
+                                                <h4 className="font-bold text-sm text-neutral-200 leading-tight mb-2">
+                                                    {proc.titulo}
+                                                </h4>
+                                                <p className="text-xs text-neutral-400">
+                                                    {proc.desc}
+                                                </p>
+                                                {proc.fonte && (
+                                                    <a href={proc.fonte} target="_blank" rel="noopener noreferrer" className="mt-3 text-xs text-red-400 flex items-center gap-1 hover:text-red-300 transition-colors bg-red-500/10 w-fit px-2 py-1 rounded-md border border-red-500/20">
+                                                        <ExternalLink className="w-3 h-3" /> Ver Processo Original
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-neutral-700 bg-neutral-900/20 rounded-2xl">
+                                        <span className="text-xs text-neutral-500 font-mono tracking-widest">Nenhuma despesa ou empresa associada encontrada nos registros iniciais.</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <button
+                                onClick={() => setIsTeiaModalOpen(true)}
+                                className="block text-center w-full mt-6 py-3 border border-purple-500/30 text-purple-400 font-bold rounded-xl text-sm hover:bg-purple-500 hover:text-white transition shadow-[0_0_15px_rgba(168,85,247,0.1)] hover:shadow-[0_0_20px_rgba(168,85,247,0.4)] flex flex-col items-center justify-center gap-1 group"
+                            >
+                                <span>Gerar Teia de Corrupção</span>
+                                <span className="text-[10px] font-normal opacity-70 group-hover:opacity-100 transition-opacity">Visualizar ligações hierárquicas</span>
+                            </button>
+
+                            {/* NOVO BOTÃO: EXTRATO BANCÁRIO */}
+                            <button
+                                onClick={() => router.push(`/politico/${idPolitico}/extrato`)}
+                                className="block text-center w-full mt-3 py-3 bg-neutral-900 border border-neutral-700 text-neutral-300 font-bold rounded-xl text-sm hover:bg-neutral-800 transition flex items-center justify-center gap-2"
+                            >
+                                <Receipt className="w-4 h-4" />
+                                <span>Ver Extrato Completo</span>
+                            </button>
+                        </div>
                     </motion.div>
 
                     {/* COLUNA 4: NOTÍCIAS RECENTES */}
@@ -348,21 +387,7 @@ export default function PoliticoPerfil() {
 
                 </div>
 
-                {/* BOTÃO PARA DOSSIÊ COMPLETO */}
-                <motion.div
-                    initial={{ opacity: 0, y: 30 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.8 }}
-                    className="mt-12 flex justify-center"
-                >
-                    <button
-                        onClick={() => router.push(`/politico/${idPolitico}/relatorio`)}
-                        className="bg-red-600 hover:bg-red-500 text-white font-black text-xl md:text-2xl px-12 py-6 rounded-2xl flex items-center justify-center gap-4 transition-all shadow-[0_0_30px_rgba(220,38,38,0.3)] hover:shadow-[0_0_50px_rgba(220,38,38,0.6)] animate-pulse hover:animate-none group hover:scale-105"
-                    >
-                        <ShieldAlert className="w-8 h-8 group-hover:scale-110 transition-transform" />
-                        🚨 ABRIR DOSSIÊ DE AUDITORIA COMPLETA
-                    </button>
-                </motion.div>
+
 
                 {/* WIDGET GEMINI IA */}
                 <motion.div
@@ -404,24 +429,17 @@ export default function PoliticoPerfil() {
                     )}
                 </motion.div>
 
-                {/* MODAL INTERNO DO GRAFO SIMULADO */}
+                {/* MODAL INTERNO DO GRAFO REAL 2D */}
                 {isTeiaModalOpen && (
                     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-neutral-950 border border-purple-500/50 shadow-[0_0_50px_rgba(168,85,247,0.2)] rounded-3xl p-8 max-w-4xl w-full relative">
-                            <button onClick={() => setIsTeiaModalOpen(false)} className="absolute top-4 right-4 text-neutral-500 hover:text-white">✕</button>
-                            <h2 className="text-2xl font-black text-purple-400 mb-6 flex items-center gap-2"><Building2 className="w-6 h-6" /> Teia Empresarial Simulada</h2>
-                            <div className="h-[400px] w-full bg-neutral-900 rounded-2xl border border-neutral-800 flex items-center justify-center overflow-auto p-4">
-                                <div className="flex flex-col items-center gap-8">
-                                    <div className="px-6 py-3 bg-neutral-800 border-2 border-emerald-500 rounded-full text-white font-bold">{politicoData.nome}</div>
-                                    <div className="flex gap-4 flex-wrap justify-center">
-                                        {politicoData.empresas?.map((emp: any, i: number) => (
-                                            <div key={i} className="flex flex-col items-center gap-2">
-                                                <div className="w-[2px] h-8 bg-purple-500/50"></div>
-                                                <div className="px-4 py-2 bg-neutral-900 border border-purple-500 rounded-xl text-xs text-center max-w-[150px] truncate">{emp.nome}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
+                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-neutral-950 border border-purple-500/50 shadow-[0_0_50px_rgba(168,85,247,0.2)] rounded-3xl p-6 md:p-8 max-w-5xl w-full h-[85vh] relative flex flex-col">
+                            <button onClick={() => setIsTeiaModalOpen(false)} className="absolute top-4 right-4 text-neutral-500 hover:text-white z-50">✕</button>
+                            <h2 className="text-2xl font-black text-purple-400 mb-6 flex items-center gap-2 shrink-0"><Building2 className="w-6 h-6" /> Teia Empresarial de OSINT</h2>
+                            <div className="flex-1 w-full bg-black rounded-2xl border border-neutral-800 overflow-hidden relative">
+                                <GrafoCorrupcao politicoData={politicoData} />
+                            </div>
+                            <div className="shrink-0 mt-4 text-center text-xs text-neutral-500 font-mono">
+                                Utilize o mouse/touch para arrastar os nós e dar Zoom. Motor de Grafos renderizado via Canvas HTML5.
                             </div>
                         </motion.div>
                     </div>
@@ -429,4 +447,5 @@ export default function PoliticoPerfil() {
             </main>
         </div>
     );
+}
 }
