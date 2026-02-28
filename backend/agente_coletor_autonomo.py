@@ -177,7 +177,7 @@ def avaliar_score_inicial_sincrono(nome_politico: str):
             
     return pontos_perdidos, red_flags, motivos
 
-async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cpf_real: str = None, cnpjs_declarados: list = None, red_flags_iniciais: list = None, pontos_perdidos_iniciais: int = 0):
+async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cpf_real: str = None, cnpjs_declarados: list = None, red_flags_iniciais: list = None, pontos_perdidos_iniciais: int = 0, despesas_para_analise: list = None):
     """
     Motor Central de Auditoria Governamental Background.
     Cruza Receita Federal, CGU, IBAMA e TCU em tempo real.
@@ -276,6 +276,7 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
         "redFlags": red_flags,
         "pontos_perdidos": pontos_perdidos,
         "empresas": empresas_detalhadas,
+        "despesas_brutas": despesas_para_analise or [],
         "data_auditoria": datetime.now().isoformat()
     }
     
