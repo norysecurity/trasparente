@@ -138,13 +138,13 @@ def pesquisar_historico_criminal_sync(nome_politico: str):
         print(f"  ❌ Erro DuckDuckGo: {e}")
     return resultados
 
-def avaliar_score_inicial_sincrono(nome_politico: str):
+def avaliar_score_inicial_sincrono(nome_politico: str) -> tuple[int, list, list]:
     """
     Garante que a rota do Frontend obtenha a penalidade baseada em fatos antes das views.
     """
-    pontos_perdidos = 0
-    red_flags = []
-    motivos = []
+    pontos_perdidos: int = 0
+    red_flags: list[dict[str, str]] = []
+    motivos: list[str] = []
     
     # 1. LISTA NEGRA
     for mafioso in LISTA_NEGRA:
@@ -181,7 +181,7 @@ def avaliar_score_inicial_sincrono(nome_politico: str):
             
     return pontos_perdidos, red_flags, motivos
 
-async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cpf_real: str = None, cnpjs_fornecedores: list = None, red_flags_iniciais: list = None, pontos_perdidos_iniciais: int = 0, despesas_para_analise: list = None):
+async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cpf_real: str | None = None, cnpjs_fornecedores: list | None = None, red_flags_iniciais: list | None = None, pontos_perdidos_iniciais: int = 0, despesas_para_analise: list | None = None):
     """
     Motor Central de Auditoria Governamental Background.
     Cruza Receita Federal, CGU, IBAMA e TCU em tempo real.
@@ -197,13 +197,13 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
     # 1. ISOLANDO SOBRENOMES DO POLÍTICO
     partes_nome = nome_politico.lower().split()
     ignorar_conectivos = {"dos", "das", "de", "do", "da", "filho", "junior", "neto", "jr"}
-    nomes_limpos = [p for p in partes_nome if len(p) > 2 and p not in ignorar_conectivos]
+    nomes_limpos: list[str] = [str(p) for p in partes_nome if len(p) > 2 and p not in ignorar_conectivos]
     
     # Extrai apenas os últimos nomes (sobrenomes reais)
     if len(nomes_limpos) > 2:
-        sobrenomes_politico = list(nomes_limpos)[-2:]
+        sobrenomes_politico = [nomes_limpos[-2], nomes_limpos[-1]]
     elif len(nomes_limpos) == 2:
-        sobrenomes_politico = [list(nomes_limpos)[-1]]
+        sobrenomes_politico = [nomes_limpos[-1]]
     else:
         sobrenomes_politico = list(nomes_limpos)
         

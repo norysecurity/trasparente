@@ -126,6 +126,11 @@ def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, c
         ))
     except Exception as e:
         print(f"Erro no Worker Síncrono: {e}")
+    finally:
+        try:
+            loop.close()
+        except:
+            pass
 
 @app.get("/api/politico/detalhes/{id}")
 def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
@@ -257,7 +262,8 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
 
     noticias_limpas = []
     try:
-        noticias_brutas = DDGS().news(keywords=nome_completo, region="br-pt", max_results=5)
+        with DDGS() as ddgs:
+            noticias_brutas = list(ddgs.news(keywords=nome_completo, region="br-pt", max_results=5))
         if noticias_brutas:
             for n in noticias_brutas:
                 fonte_raw = n.get("source", "Outros")
