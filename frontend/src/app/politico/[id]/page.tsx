@@ -12,6 +12,7 @@ export default function PoliticoPerfil() {
     const [loading, setLoading] = useState(true);
     const [filtroEditorial, setFiltroEditorial] = useState("Todas as Fontes");
     const [politicoData, setPoliticoData] = useState<any>(null);
+    const [isTeiaModalOpen, setIsTeiaModalOpen] = useState(false);
 
     useEffect(() => {
         if (!idPolitico) return;
@@ -112,7 +113,7 @@ export default function PoliticoPerfil() {
                 </motion.div>
 
                 {/* 4 COLUNAS GRID */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-12">
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 lg:gap-12 xl:gap-12 gap-8">
 
                     {/* COLUNA 1: ATUAÇÃO */}
                     <motion.div
@@ -123,7 +124,7 @@ export default function PoliticoPerfil() {
                             <FileText className="w-5 h-5" /> Comissões
                         </h3>
                         {politicoData.projetos && politicoData.projetos.length > 0 ? (
-                            <div className="space-y-6 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                            <div className="space-y-6 max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-emerald-500 scrollbar-track-neutral-900 pr-2">
                                 {politicoData.projetos.map((proj: any, idx: number) => (
                                     <div key={idx}>
                                         <div className="flex justify-between text-sm mb-1">
@@ -156,7 +157,7 @@ export default function PoliticoPerfil() {
                         </h3>
 
                         {politicoData.redFlags && politicoData.redFlags.length > 0 ? (
-                            <div className="space-y-6 relative max-h-[400px] overflow-y-auto custom-scrollbar pr-2 overflow-x-hidden before:absolute before:inset-0 before:ml-2.5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-neutral-800 before:to-transparent">
+                            <div className="space-y-6 relative max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-red-500 scrollbar-track-neutral-900 pr-2 overflow-x-hidden before:absolute before:inset-0 before:ml-2.5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-neutral-800 before:to-transparent">
                                 {politicoData.redFlags.map((flag: any, idx: number) => (
                                     <motion.div
                                         initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.5 + (idx * 0.1) }}
@@ -198,7 +199,7 @@ export default function PoliticoPerfil() {
                         </h3>
 
                         {politicoData.empresas && politicoData.empresas.length > 0 ? (
-                            <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                            <div className="space-y-4 max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-neutral-900 pr-2">
                                 {politicoData.empresas.map((emp: any, idx: number) => (
                                     <motion.div
                                         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 + (idx * 0.1) }}
@@ -228,15 +229,13 @@ export default function PoliticoPerfil() {
                             </div>
                         )}
 
-                        <a
-                            href="http://localhost:7474"
-                            target="_blank"
-                            rel="noreferrer"
+                        <button
+                            onClick={() => setIsTeiaModalOpen(true)}
                             className="block text-center w-full mt-6 py-3 border border-purple-500/30 text-purple-400 font-bold rounded-xl text-sm hover:bg-purple-500 hover:text-white transition shadow-[0_0_15px_rgba(168,85,247,0.1)] hover:shadow-[0_0_20px_rgba(168,85,247,0.4)] flex flex-col items-center justify-center gap-1 group"
                         >
-                            <span>Abrir Teia no Neo4j</span>
-                            <span className="text-[10px] font-normal opacity-70 group-hover:opacity-100 transition-opacity">Ver conexões e laranjas no banco de grafos</span>
-                        </a>
+                            <span>Gerar Teia de Corrupção</span>
+                            <span className="text-[10px] font-normal opacity-70 group-hover:opacity-100 transition-opacity">Visualizar ligações hierárquicas</span>
+                        </button>
                     </motion.div>
 
                     {/* COLUNA 4: NOTÍCIAS RECENTES */}
@@ -262,7 +261,7 @@ export default function PoliticoPerfil() {
                                         </button>
                                     ))}
                                 </div>
-                                <div className="space-y-4 relative max-h-[380px] overflow-y-auto custom-scrollbar pr-2 flex-1">
+                                <div className="space-y-4 relative max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-blue-500 scrollbar-track-neutral-900 pr-2 flex-1">
                                     {politicoData.noticias
                                         .filter((n: any) => filtroEditorial === "Todas as Fontes" || n.linha_editorial === filtroEditorial)
                                         .map((noticia: any, idx: number) => {
@@ -326,6 +325,29 @@ export default function PoliticoPerfil() {
                         🚨 ABRIR DOSSIÊ DE AUDITORIA COMPLETA
                     </button>
                 </motion.div>
+
+                {/* MODAL INTERNO DO GRAFO SIMULADO */}
+                {isTeiaModalOpen && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-neutral-950 border border-purple-500/50 shadow-[0_0_50px_rgba(168,85,247,0.2)] rounded-3xl p-8 max-w-4xl w-full relative">
+                            <button onClick={() => setIsTeiaModalOpen(false)} className="absolute top-4 right-4 text-neutral-500 hover:text-white">✕</button>
+                            <h2 className="text-2xl font-black text-purple-400 mb-6 flex items-center gap-2"><Building2 className="w-6 h-6" /> Teia Empresarial Simulada</h2>
+                            <div className="h-[400px] w-full bg-neutral-900 rounded-2xl border border-neutral-800 flex items-center justify-center overflow-auto p-4">
+                                <div className="flex flex-col items-center gap-8">
+                                    <div className="px-6 py-3 bg-neutral-800 border-2 border-emerald-500 rounded-full text-white font-bold">{politicoData.nome}</div>
+                                    <div className="flex gap-4 flex-wrap justify-center">
+                                        {politicoData.empresas?.map((emp: any, i: number) => (
+                                            <div key={i} className="flex flex-col items-center gap-2">
+                                                <div className="w-[2px] h-8 bg-purple-500/50"></div>
+                                                <div className="px-4 py-2 bg-neutral-900 border border-purple-500 rounded-xl text-xs text-center max-w-[150px] truncate">{emp.nome}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
             </main>
         </div>
     );

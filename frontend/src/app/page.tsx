@@ -52,7 +52,11 @@ export default function Home() {
       const res = await fetch(`http://localhost:8000/api/politicos/estado/${uf}`);
       const data = await res.json();
       if (data.status === "sucesso") {
-        const sorted = data.dados.sort((a: any, b: any) => b.score_auditoria - a.score_auditoria);
+        const sorted = data.dados.sort((a: any, b: any) => {
+          let va = a.score_auditoria === "Pendente" ? 1000 : a.score_auditoria;
+          let vb = b.score_auditoria === "Pendente" ? 1000 : b.score_auditoria;
+          return vb - va;
+        });
         setResultados(sorted);
       }
     } catch (err) {
@@ -102,11 +106,11 @@ export default function Home() {
                   <motion.div
                     animate={{ boxShadow: ['0 0 15px rgba(234,179,8,0.3)', '0 0 30px rgba(234,179,8,0.6)', '0 0 15px rgba(234,179,8,0.3)'] }}
                     transition={{ duration: 2, repeat: Infinity }}
-                    className="w-24 h-24 rounded-full overflow-hidden border-2 border-yellow-500 mb-4"
+                    className="w-24 h-24 rounded-full overflow-hidden border-2 border-yellow-500 mb-4 animate-pulse relative"
                   >
-                    <img src={pres.urlFoto} alt={pres.nome} className="w-full h-full object-cover" />
+                    <img src={pres.urlFoto} alt={pres.nome} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.src = "https://via.placeholder.com/150"; }} />
                   </motion.div>
-                  <h3 className="text-lg font-bold text-white text-center mb-1">{pres.nome}</h3>
+                  <h3 className="text-lg font-bold text-white text-center mb-1 truncate w-full px-2">{pres.nome}</h3>
                   <p className="text-sm text-neutral-400 mb-4">{pres.cargo} - {pres.siglaPartido}</p>
 
                   <div className="w-full bg-neutral-900 rounded-xl p-3 flex justify-between items-center border border-neutral-800">
@@ -155,9 +159,9 @@ export default function Home() {
                       const isSelected = estadoSelecionado === geo.properties.name;
                       return (
                         <Geography key={geo.rsmKey} geography={geo} onClick={() => handleStateClick(geo)} style={{
-                          default: { fill: isSelected ? "#22c55e" : "#171717", stroke: "#333", strokeWidth: 0.5, outline: "none" },
-                          hover: { fill: "#a855f7", stroke: "#a855f7", cursor: "pointer", transition: "all 250ms", outline: "none" },
-                          pressed: { outline: "none" }
+                          default: { fill: isSelected ? "#10b981" : "#171717", stroke: "#333", strokeWidth: 0.5, outline: "none" },
+                          hover: { fill: "#10b981", stroke: "#059669", cursor: "pointer", transition: "all 250ms", outline: "none" },
+                          pressed: { outline: "none", fill: "#059669" }
                         }} />
                       );
                     })
