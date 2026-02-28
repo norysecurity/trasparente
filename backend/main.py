@@ -106,15 +106,8 @@ def buscar_politicos_estado(uf: str):
 
 @app.get("/api/politicos/cidade/{municipio}")
 def buscar_politicos_cidade(municipio: str):
-    # Mock data generation based on city name for Drilldown feature
-    nome_mun = municipio.title()
-    dados = [
-        {"id": 800001, "nome": f"Prefeito de {nome_mun}", "cargo": "Prefeito", "siglaPartido": "MDB", "siglaUf": "N/A", "urlFoto": "https://via.placeholder.com/150", "nivel_boss": "🏰 Rei Municipal", "score_auditoria": "Pendente"},
-        {"id": 800002, "nome": f"João (Vereador {nome_mun})", "cargo": "Vereador", "siglaPartido": "PL", "siglaUf": "N/A", "urlFoto": "https://via.placeholder.com/150", "nivel_boss": "🐟 Peixe Pequeno", "score_auditoria": "Pendente"},
-        {"id": 800003, "nome": f"Maria (Vereadora {nome_mun})", "cargo": "Vereador", "siglaPartido": "PT", "siglaUf": "N/A", "urlFoto": "https://via.placeholder.com/150", "nivel_boss": "🐟 Peixe Pequeno", "score_auditoria": "Pendente"},
-        {"id": 800004, "nome": f"José (Vereador {nome_mun})", "cargo": "Vereador", "siglaPartido": "UNIÃO", "siglaUf": "N/A", "urlFoto": "https://via.placeholder.com/150", "nivel_boss": "🐟 Peixe Pequeno", "score_auditoria": "Pendente"}
-    ]
-    return {"status": "sucesso", "dados": dados}
+    # Retirando Mocks como solicitado. A tela Frontend deve exibir a mensagem de aviso.
+    return {"status": "vazio", "mensagem": f"Motor CGU e TSE sincronizando base de {municipio.title()}... Tente auditar senadores/GOVs por enquanto."}
 
 def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, cnpjs_fornecedores: list, red_flags: list, pts_perdidos: int, despesas_brutas: list):
     try:
