@@ -141,7 +141,7 @@ def avaliar_red_flags_ia(nome_politico: str, resultados_web: list):
                 "desc": motivo,
                 "fonte": url
             })
-            pontos_perdidos += 200
+            pontos_perdidos += 150
             print(f"  🚨 ALERTA CRIMINAL: {title}")
             
     return red_flags, pontos_perdidos
