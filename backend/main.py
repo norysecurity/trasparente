@@ -31,6 +31,7 @@ app.add_middleware(
 
 CAMARA_API = "https://dadosabertos.camara.leg.br/api/v2/deputados"
 
+NOME_PRESIDENCIAIS = {900001: "Luiz Inácio Lula da Silva", 900002: "Tarcísio de Freitas", 900003: "Romeu Zema", 900004: "Ronaldo Caiado"}
 CACHE_DOSSIES = {}
 
 def obter_score_dossie(id_politico):
@@ -141,6 +142,10 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         if res_basico.status_code != 200:
             dado_basico = CACHE_DOSSIES.get(id, {"nome": f"ID {id}", "cargo": "Desconhecido"})
             nome_completo = dado_basico.get("nome", "Desconhecido")
+            
+            if id in NOME_PRESIDENCIAIS:
+                nome_completo = NOME_PRESIDENCIAIS[id]
+                
             cargo = dado_basico.get("cargo", "Desconhecido")
             partido = dado_basico.get("partido", "SD")
             uf = dado_basico.get("uf", "BR")

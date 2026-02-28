@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 from dotenv import load_dotenv
 from duckduckgo_search import DDGS
+from motor_ia_qwen import MotorIAQwen
 
 # Forçar leitura do .env na raiz do projeto
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -128,7 +129,7 @@ def buscar_cpf_e_bens_tse_sync(nome_politico: str) -> list:
 
 def pesquisar_historico_criminal_sync(nome_politico: str):
     print(f"🌐 [OSINT STF/PF] Iniciando Vasculha Síncrona para: {nome_politico}")
-    query = f'"{nome_politico}" (STF OR "Polícia Federal" OR "Lava Jato" OR inquérito OR condenado OR "Polícia" OR "Ministério Público")'
+    query = f"{nome_politico} investigado corrupção STF"
     resultados = []
     try:
         with DDGS() as ddgs:
@@ -195,8 +196,20 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
     
     # 1. ISOLANDO SOBRENOMES DO POLÍTICO
     partes_nome = nome_politico.lower().split()
-    preposicoes = ["dos", "das", "de", "do", "da", "filho", "junior", "neto"]
-    sobrenomes_politico = [p for p in partes_nome if len(p) > 2 and p not in preposicoes]
+    ignorar_conectivos = {"dos", "das", "de", "do", "da", "filho", "junior", "neto", "jr"}
+    nomes_limpos = [p for p in partes_nome if len(p) > 2 and p not in ignorar_conectivos]
+    
+    # Extrai apenas os últimos nomes (sobrenomes reais)
+    if len(nomes_limpos) > 2:
+        sobrenomes_politico = list(nomes_limpos)[-2:]
+    elif len(nomes_limpos) == 2:
+        sobrenomes_politico = [list(nomes_limpos)[-1]]
+    else:
+        sobrenomes_politico = list(nomes_limpos)
+        
+    # Remove primeiros nomes comuns compostos que causam falsos positivos
+    nomes_comuns = {"maria", "joao", "ana", "paula", "jose", "pedro", "luiz", "carlos", "paulo", "antonio", "francisco"}
+    sobrenomes_politico = [s for s in sobrenomes_politico if s not in nomes_comuns]
     
     if not cpf_real or cpf_real == "00000000000":
         print("⚠️ CPF real não fornecido ou nulo. A auditoria profunda na CGU PEP não ocorrerá.")
@@ -229,8 +242,9 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
             for socio in socios:
                 socio_lower = str(socio).lower()
                 for sobrenome in sobrenomes_politico:
-                    if sobrenome in socio_lower:
-                        print(f"  🩸 MATCH DE SOBRENOME DETECTADO: '{sobrenome.upper()}' cruzado com sócio '{str(socio).upper()}' (Empresa Fornecedora: {nome_empresa})")
+                    sobreno_str = str(sobrenome)
+                    if sobreno_str in socio_lower:
+                        print(f"  🩸 MATCH DE SOBRENOME DETECTADO: '{sobreno_str.upper()}' cruzado com sócio '{str(socio).upper()}' (Empresa Fornecedora: {nome_empresa})")
                         pontos_perdidos += 400
                         red_flags.append({
                             "data": datetime.now().strftime("%d/%m/%Y"),
@@ -289,6 +303,31 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
         if len(emendas) > 0:
              print(f"  💸 EMENDAS ENCONTRADAS: Injetando {len(emendas)} no Grafo Financeiro.")
              empresas_detalhadas.extend(emendas)
+
+    # 7. INTEGRAÇÃO MOTOR DE IA QWEN
+    print("🧠 [LLM] Enviando Dossiê Sintetizado para a Qwen...")
+    dossie_contexto = {
+        "empresas_encontradas": empresas_detalhadas,
+        "noticias_osint": pesquisar_historico_criminal_sync(nome_politico),
+        "despesas_camara": despesas_para_analise
+    }
+    
+    resultado_ia = await MotorIAQwen().analisar_dossie(dossie_contexto)
+    
+    nivel_risco = resultado_ia.get("nivel_risco", "BAIXO").upper()
+    print(f"🧠 Análise de IA Concluída: Risco {nivel_risco}")
+    
+    # Deduções baseadas no Nível de Risco da IA
+    deducoes_ia = {"CRITICO": 500, "ALTO": 300, "MEDIO": 150, "BAIXO": 0}
+    pontos_perdidos += deducoes_ia.get(nivel_risco, 0)
+    
+    for rf_ia in resultado_ia.get("red_flags", []):
+        red_flags.append({
+            "data": datetime.now().strftime("%d/%m/%Y"),
+            "titulo": f"🤖 IA Alert: Risco {nivel_risco}",
+            "desc": rf_ia.get("motivo", "Anomalia detectada pelo Motor IA"),
+            "fonte": "Auditoria IA (Qwen)"
+        })
 
     # Regra de Segurança: Score nunca é negativo
     score_final = 1000 - pontos_perdidos
