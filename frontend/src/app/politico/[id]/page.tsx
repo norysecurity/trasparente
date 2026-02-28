@@ -81,7 +81,7 @@ export default function PoliticoPerfil() {
 
             {/* NAVBAR */}
             <nav className="fixed w-full z-50 bg-neutral-950/80 backdrop-blur-md border-b border-neutral-800 p-4">
-                <div className="max-w-7xl mx-auto flex items-center justify-between">
+                <div className="max-w-[95%] mx-auto flex items-center justify-between">
                     <button onClick={() => router.push('/')} className="flex items-center gap-2 text-neutral-400 hover:text-white transition group">
                         <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition" />
                         Voltar ao Dashboard
@@ -90,7 +90,7 @@ export default function PoliticoPerfil() {
                 </div>
             </nav>
 
-            <main className="max-w-7xl mx-auto px-6 pt-28 pb-12 relative z-10">
+            <main className="max-w-[95%] mx-auto px-6 pt-28 pb-12 relative z-10">
 
                 {/* HEADER ÉPICO */}
                 <motion.div
@@ -158,12 +158,12 @@ export default function PoliticoPerfil() {
                             <FileText className="w-5 h-5" /> Comissões
                         </h3>
                         {politicoData.projetos && politicoData.projetos.length > 0 ? (
-                            <div className="space-y-6 max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-emerald-500 scrollbar-track-neutral-900 pr-2">
+                            <div className="space-y-6 max-h-[450px] overflow-y-auto custom-scrollbar pr-2">
                                 {politicoData.projetos.map((proj: any, idx: number) => (
-                                    <div key={idx}>
+                                    <div key={idx} className="hover:bg-neutral-800/50 p-2 rounded-lg transition-colors cursor-default">
                                         <div className="flex justify-between text-sm mb-1">
-                                            <span className="font-bold text-neutral-200">{proj.titulo}</span>
-                                            <span className="text-neutral-500">{proj.status}</span>
+                                            <span className="font-bold text-neutral-200 truncate pr-2">{proj.titulo}</span>
+                                            <span className="text-neutral-500 flex-shrink-0">{proj.status}</span>
                                         </div>
                                         <div className="w-full bg-neutral-800 rounded-full h-1.5">
                                             <motion.div initial={{ width: 0 }} animate={{ width: `${proj.presence}%` }} transition={{ duration: 1, delay: 0.5 }} className="bg-emerald-500 h-1.5 rounded-full" />
@@ -172,9 +172,9 @@ export default function PoliticoPerfil() {
                                 ))}
                             </div>
                         ) : (
-                            <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-neutral-700 bg-neutral-900/20 rounded-2xl animate-pulse">
-                                <ShieldAlert className="w-8 h-8 text-neutral-500 mb-2" />
-                                <span className="text-xs text-neutral-500 font-mono tracking-widest">⏳ O Robô Autônomo (Worker) está processando dados neste momento. Retorne mais tarde.</span>
+                            <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-neutral-700 bg-neutral-900/20 rounded-2xl">
+                                <FileText className="w-8 h-8 text-neutral-500 mb-2" />
+                                <span className="text-xs text-neutral-500 font-mono tracking-widest">Registros de comissões legislativas ausentes no ciclo atual.</span>
                             </div>
                         )}
 
@@ -191,7 +191,7 @@ export default function PoliticoPerfil() {
                         </h3>
 
                         {politicoData.redFlags && politicoData.redFlags.length > 0 ? (
-                            <div className="space-y-6 relative max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-red-500 scrollbar-track-neutral-900 pr-2 overflow-x-hidden before:absolute before:inset-0 before:ml-2.5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-neutral-800 before:to-transparent">
+                            <div className="space-y-6 relative max-h-[450px] overflow-y-auto custom-scrollbar pr-2 overflow-x-hidden before:absolute before:inset-0 before:ml-2.5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-neutral-800 before:to-transparent">
                                 {politicoData.redFlags.map((flag: any, idx: number) => (
                                     <motion.div
                                         initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.5, delay: 0.5 + (idx * 0.1) }}
@@ -216,9 +216,9 @@ export default function PoliticoPerfil() {
                                 ))}
                             </div>
                         ) : (
-                            <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-red-900/30 bg-red-950/10 rounded-2xl animate-pulse">
-                                <ShieldAlert className="w-8 h-8 text-red-900/50 mb-2" />
-                                <span className="text-xs text-red-900/50 font-mono tracking-widest leading-relaxed">⏳ O Robô Autônomo (Worker) está processando o Diário Oficial neste momento. Retorne mais tarde.</span>
+                            <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-red-900/30 bg-red-950/10 rounded-2xl shadow-inner">
+                                <Scale className="w-8 h-8 text-red-900/50 mb-2 opacity-50" />
+                                <span className="text-xs text-red-300/50 font-mono tracking-widest leading-relaxed">Nenhuma Sanção Direta, Crime Ambiental (IBAMA) ou Processo no STF reportado pelo Motor até o momento.</span>
                             </div>
                         )}
                     </motion.div>
@@ -233,7 +233,7 @@ export default function PoliticoPerfil() {
                         </h3>
 
                         {politicoData.empresas && politicoData.empresas.length > 0 ? (
-                            <div className="space-y-4 max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-neutral-900 pr-2">
+                            <div className="space-y-4 max-h-[450px] overflow-y-auto custom-scrollbar pr-2">
                                 {politicoData.empresas.map((emp: any, idx: number) => (
                                     <motion.div
                                         initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.6 + (idx * 0.1) }}
@@ -295,7 +295,7 @@ export default function PoliticoPerfil() {
                                         </button>
                                     ))}
                                 </div>
-                                <div className="space-y-4 relative max-h-[450px] overflow-y-auto scrollbar-thin scrollbar-thumb-blue-500 scrollbar-track-neutral-900 pr-2 flex-1">
+                                <div className="space-y-4 relative max-h-[450px] overflow-y-auto custom-scrollbar pr-2 flex-1">
                                     {politicoData.noticias
                                         .filter((n: any) => filtroEditorial === "Todas as Fontes" || n.linha_editorial === filtroEditorial)
                                         .map((noticia: any, idx: number) => {

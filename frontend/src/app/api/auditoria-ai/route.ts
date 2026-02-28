@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
+import * as dotenv from "dotenv";
+import * as path from "path";
+
+// Força leitura de `.env` que está na raiz primária
+dotenv.config({ path: path.resolve(process.cwd(), '../.env') });
 
 export async function POST(req: Request) {
     try {
