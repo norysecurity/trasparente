@@ -5,12 +5,12 @@ import os
 import json
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from duckduckgo_search import DDGS
+
 from agente_coletor_autonomo import (
-    pesquisar_historico_criminal_sync, 
-    avaliar_red_flags_ia, 
+    avaliar_score_inicial_sincrono,
     auditar_malha_fina_assincrona
 )
-from duckduckgo_search import DDGS
 
 app = FastAPI(title="GovTech Transparência API")
 
@@ -108,13 +108,16 @@ def buscar_politico(nome: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, cnpjs_suspeitos: list, redizadas: list, pontos: int):
+def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, cnpjs_suspeitos: list, red_flags: list, pts_perdidos: int):
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(auditar_malha_fina_assincrona(id_politico, nome_politico, cpf, cnpjs_suspeitos, redizadas, pontos))
+        loop.run_until_complete(auditar_malha_fina_assincrona(
+            id_politico, nome_politico, cpf_real=cpf, cnpjs_declarados=cnpjs_suspeitos, 
+            red_flags_iniciais=red_flags, pontos_perdidos_iniciais=pts_perdidos
+        ))
     except Exception as e:
-        print(f"Erro no Worker Assíncrono Background: {e}")
+        print(f"Erro no Worker Síncrono: {e}")
 
 @app.get("/api/politico/detalhes/{id}")
 def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
@@ -138,6 +141,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
             cpf_oculto = "00000000000"
             despesas_data = []
             orgaos_data = []
+
         else:
             api_dado = res_basico.json().get("dados", {})
             ultimo_status = api_dado.get("ultimoStatus", {})
@@ -158,10 +162,10 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         print(f"Erro ao buscar os dados do político {id} na câmara: {e}")
         raise HTTPException(status_code=500, detail="Erro interno ao buscar político")
 
-    # REGRA NÚMERO 3 E 4: FIM DA NOTA FALSA E MOCK NO PAINEL
-    # A auditoria dos crimes é SÍNCRONA antes do return, caso o Dossiê não exista!
+
     caminho_dossie = f"dossies/dossie_{id}.json"
     historico_redflags = []
+    empresas_geradas = []
     score_base = 1000
     pontos_perdidos = 0
     motivos_detalhados = []
@@ -172,15 +176,15 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
                 dossie_cache = json.load(f)
                 historico_redflags = dossie_cache.get("redFlags", [])
                 pontos_perdidos = dossie_cache.get("pontos_perdidos", 0)
-        except Exception:
+                empresas_geradas = dossie_cache.get("empresas", [])
+        except:
             pass
     else:
-        # Não está no CACHE de FILE SYSTEM, vamos Sincronizar OSINT Básico pra Tela inicial antes de soltar o JSON.
-        print(f"⚠️ Dossiê INEXISTENTE para Secção. Iniciando Coleta OSINT Criminal SÍNCRONA...")
-        web_resultados = pesquisar_historico_criminal_sync(nome_completo)
-        historico_redflags, pontos_perdidos, motivos_detalhados = avaliar_red_flags_ia(nome_completo, web_resultados)
+        # AQUI OCORRE A OBRIGATORIEDADE DA SINCRONIA: Avalia os crimes do político na HORA DA TELA
+        print(f"⚠️ Dossiê INEXISTENTE ({nome_completo}). Iniciando OSINT Criminal SÍNCRONO antes da renderização...")
+        pontos_perdidos, historico_redflags, motivos_detalhados = avaliar_score_inicial_sincrono(nome_completo)
         
-        # Cria Preview Base na hora pra proteger DB
+        # Cria Preview Base na hora pra proteger o DB e gerar Score realista imediato na view
         os.makedirs("dossies", exist_ok=True)
         with open(caminho_dossie, "w", encoding="utf-8") as file:
             json.dump({
@@ -189,11 +193,11 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
                 "pontos_perdidos": pontos_perdidos,
                 "data_auditoria": datetime.now().isoformat()
             }, file, ensure_ascii=False, indent=4)
-        print("✅ Red Flags Iniciais salvas no Dossiê Temporário.")
+        print("✅ Dados temporários Síncronos salvos com pontuação inicial.")
 
     score_base -= pontos_perdidos
 
-    empresas_reais = []
+    empresas_reais = list(empresas_geradas) if empresas_geradas else []
     cnpjs_para_osint = []
     total_despesas = 0
 
@@ -204,13 +208,15 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
 
         valor_despesa = d.get('valorDocumento', 0)
         total_despesas += valor_despesa
-
-        empresas_reais.append({
-            "nome": d.get("nomeFornecedor", "Fornecedor Local"),
-            "cargo": d.get("tipoDespesa", "Despesa"),
-            "valor": f"R$ {valor_despesa:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
-            "fonte": d.get("urlDocumento", "")
-        })
+        
+        # Mapeia gastos em empresas pra exibir mas sem forçar Mock
+        if not any(emp.get("cnpj") == cnpj_raw for emp in empresas_reais):
+            empresas_reais.append({
+                "nome": d.get("nomeFornecedor", "Fornecedor Local"),
+                "cargo": d.get("tipoDespesa", "Despesa"),
+                "valor": f"R$ {valor_despesa:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
+                "fonte": d.get("urlDocumento", "")
+            })
 
     projetos_reais = []
     for o in orgaos_data:
@@ -222,16 +228,17 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
 
     if total_despesas > 20000:
         score_base -= 150
-        motivos_detalhados.append(f"Alta movimentação suspeita nas contas de Gabinete (+20k)")
+        motivos_detalhados.append(f"Alta movimentação nas últimas despesas (R$ {total_despesas:,.2f})")
     
     if len(projetos_reais) == 0:
         score_base -= 50
-        motivos_detalhados.append("Ociosidade e ausência nas Comissões")
-
+        motivos_detalhados.append("Baixa participação em comissões recentes")
+        
     score_final = max(0, score_base)
-    explicacao_score = f"Deduções Ativas: {', '.join(motivos_detalhados)}" if motivos_detalhados else "Comportamento padrão na base de registros."
+
+    explicacao_score = f"Deduções aplicadas: {', '.join(motivos_detalhados)}." if motivos_detalhados else "Comportamento aparentemente padrão no histórico analisado."
     
-    # Aciona Worker PROFUNDO pras CNPJs no Background
+    # Executa Worker Assíncrono da BrasilAPI/IBAMA em background sem congelar requisição
     background_tasks.add_task(disparar_worker_assincrono, id, nome_completo, cpf_oculto, cnpjs_para_osint, historico_redflags, pontos_perdidos)
 
     noticias_limpas = []
@@ -255,7 +262,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
                     "url": n.get("url", "#")
                 })
     except Exception as e:
-        print(f"Erro ao buscar noticias integradas: {e}")
+        print(f"Erro ao buscar noticias: {e}")
 
     dado_completo = {
         "id": id,
@@ -267,7 +274,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         "score_auditoria": score_final,
         "explicacao_score": explicacao_score,
         "badges": [
-            {"id": 1, "nome": "Auditoria Processada", "color": "bg-purple-500/10 border-purple-500/50 text-purple-500", "icon": "Fingerprint"}
+            {"id": 1, "nome": "Auditoria IA Iniciada", "color": "bg-purple-500/10 border-purple-500/50 text-purple-500", "icon": "Fingerprint"}
         ],
         "redFlags": historico_redflags,
         "empresas": empresas_reais,
