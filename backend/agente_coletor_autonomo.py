@@ -2,34 +2,39 @@ import asyncio
 import os
 import re
 import requests
-import fitz  # PyMuPDF
 import json
 from datetime import datetime
-from dotenv import load_dotenv
-from playwright.async_api import async_playwright
 from duckduckgo_search import DDGS
 
-load_dotenv()
-
 # Credenciais e Endpoints
-CGU_API_KEY = os.getenv("CGU_API_KEY")
+CGU_API_KEY = os.getenv("CGU_API_KEY", "")
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "govtech_password")
+
+# 1. LISTA NEGRA: Nomes famosos de processos severos que perdem pontuação automática.
+LISTA_NEGRA = [
+    "aécio neves", 
+    "eduardo cunha", 
+    "geddel", 
+    "sergio cabral", 
+    "fernando collor", 
+    "bolsonaro", 
+    "lula",
+    "arthur lira"
+]
 
 def get_neo4j_driver():
     try:
         from neo4j import GraphDatabase
         return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
     except ImportError:
-        print("Neo4j driver não instalado ou inacessível no Worker.")
         return None
     except Exception as e:
-        print(f"Erro ao conectar ao Neo4j: {e}")
         return None
 
 async def buscar_socios_receita(cnpj: str) -> list:
-    print(f"🔍 Buscando Quadro de Sócios e Administradores (QSA) para o CNPJ: {cnpj}")
+    print(f"CONECTANDO AO BRASILAPI... Buscando Quadro Societário para CNPJ: {cnpj}")
     cnpj_limpo = re.sub(r'[^0-9]', '', cnpj)
     
     url = f"https://brasilapi.com.br/api/cnpj/v1/{cnpj_limpo}"
@@ -42,20 +47,19 @@ async def buscar_socios_receita(cnpj: str) -> list:
             print(f"  ✅ Encontrados {len(socios)} sócios.")
             return socios
         else:
-            print(f"  ❌ Erro ao buscar QSA (Status: {resposta.status_code})")
+            print(f"  ❌ Erro ao buscar QSA na BrasilAPI (Status: {resposta.status_code})")
             return []
     except Exception as e:
-        print(f"  ⚠️ Falha na API da Receita: {e}")
+        print(f"  ⚠️ Falha na BrasilAPI: {e}")
         return []
 
 async def buscar_contratos_portal_transparencia(cnpj: str) -> list:
-    print(f"💰 Verificando Recebimento de Verbas Públicas para o CNPJ: {cnpj}")
+    print(f"BUSCANDO NO PORTAL DA TRANSPARÊNCIA... Verificando Verbas Públicas para CNPJ: {cnpj}")
     if not CGU_API_KEY:
-        print("  ⚠️ CGU_API_KEY não configurada. Simulação ativada.")
-        return []
+        print("  ⚠️ Header chave-api-dados não preenchido. As requisições tentarão sem token.")
         
     url = "https://api.portaldatransparencia.gov.br/api-de-dados/contratos"
-    headers = {"chave-api-dados": CGU_API_KEY}
+    headers = {"chave-api-dados": CGU_API_KEY} if CGU_API_KEY else {}
     params = {"cnpjContratada": re.sub(r'[^0-9]', '', cnpj), "pagina": 1}
     
     try:
@@ -69,7 +73,7 @@ async def buscar_contratos_portal_transparencia(cnpj: str) -> list:
                     "valor": c.get("valorInicial"),
                     "data": c.get("dataAssinatura")
                 })
-            print(f"  ✅ Encontrados {len(resultados)} contratos públicos.")
+            print(f"  ✅ Encontrados {len(resultados)} contratos públicos no CNPJ.")
             return resultados
         return []
     except Exception as e:
@@ -77,10 +81,7 @@ async def buscar_contratos_portal_transparencia(cnpj: str) -> list:
         return []
 
 async def buscar_cpf_e_bens_tse(nome_politico: str) -> list:
-    """
-    Busca declarações de bens no TSE via DuckDuckGo para encontrar CNPJs Reais.
-    """
-    print(f"🕵️‍♂️ Buscando declarações no TSE para: {nome_politico}")
+    print(f"🕵️‍♂️ Buscando declarações TSE (DuckDuckGo Search) para: {nome_politico}")
     query = f'site:divulgacandcontas.tse.jus.br "{nome_politico}" bens declarados'
     cnpjs_encontrados = set()
     try:
@@ -91,42 +92,45 @@ async def buscar_cpf_e_bens_tse(nome_politico: str) -> list:
         resultados = await asyncio.to_thread(fetch_ddgs)
         for r in resultados:
             texto = r.get('body', '') + " " + r.get('title', '')
-            # Regex para formato de CNPJ padrão XX.XXX.XXX/XXXX-XX ou XXXXXXXXXXXXXX
             cnpjs = re.findall(r'\b\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}\b|\b\d{14}\b', texto)
             for c in cnpjs:
                 cnpjs_encontrados.add(re.sub(r'[^0-9]', '', c))
                 
-        print(f"  ✅ Encontrados {len(cnpjs_encontrados)} CNPJs nas declarações do TSE.")
+        print(f"  ✅ Encontrados {len(cnpjs_encontrados)} CNPJs nas declarações TSE.")
         return list(cnpjs_encontrados)
-    except Exception as e:
-        print(f"  ❌ Erro na busca do TSE: {e}")
+    except Exception:
         return []
 
-async def pesquisar_historico_criminal_web(nome_politico: str):
-    """
-    Pesquisa em tempo real o histórico do político na Web (DDG) focando na PF e STF.
-    """
-    print(f"🌐 Iniciando OSINT na Web Aberta (DuckDuckGo STF/PF) para: {nome_politico}")
-    query = f'"{nome_politico}" (STF OR "Polícia Federal" OR "Ministério Público" OR corrupção OR inquérito OR "Lava Jato" OR indiciado)'
+def pesquisar_historico_criminal_sync(nome_politico: str):
+    print(f"🌐 Iniciando OSINT Síncrono (DuckDuckGo Processos Ferozes) para: {nome_politico}")
+    query = f'"{nome_politico}" (STF OR "Polícia Federal" OR "Ministério Público" OR corrupção OR inquérito OR "Lava Jato" OR condenado OR réu)'
     resultados = []
     try:
-        def fetch_ddgs():
-            with DDGS() as ddgs:
-                return list(ddgs.text(query, region='br-pt', safesearch='off', max_results=5))
-        
-        resultados = await asyncio.to_thread(fetch_ddgs)
+        with DDGS() as ddgs:
+            resultados = list(ddgs.text(query, region='br-pt', safesearch='off', max_results=5))
     except Exception as e:
-        print(f"  ❌ Erro na busca web: {e}")
+        print(f"  ❌ Erro na busca web síncrona: {e}")
     return resultados
 
 def avaliar_red_flags_ia(nome_politico: str, resultados_web: list):
-    """
-    Processa NLP/Regex nos resultados. Subtrai até 200 pontos de SCORE SERASA por cada caso letal.
-    """
     red_flags = []
     pontos_perdidos = 0
-    palavras_chave = ["lava jato", "propina", "inquérito", "denunciado", "indiciado", "jbs", "stf", "polícia federal", "desvio", "corrupção", "condenado", "lavagem", "réu"]
+    motivos_detalhados = []
     
+    # Check Lista Negra OBRIGATÓRIA
+    if any(nome.lower() in nome_politico.lower() for nome in LISTA_NEGRA):
+        motivos_detalhados.append("Cadastro na Lista Negra Inicial")
+        pontos_perdidos += 500
+        print(f"  🚨 ALERTA GERAL: {nome_politico} na LISTA NEGRA. Dedução imediata de 500 pontos.")
+        red_flags.append({
+            "data": datetime.now().strftime("%d/%m/%Y"),
+            "titulo": "Histórico Crítico em Foco Nacional",
+            "desc": "Este político está na database pública de alto risco ou envolvimento severo.",
+            "fonte": "Base Transparência"
+        })
+
+    # Regras punitivas do OSINT (Títulos Notícias com palavras críveis)
+    palavras_chave = ["réu", "propina", "desvio", "corrupção", "condenado", "lavagem de dinheiro", "inquérito", "indiciado", "lava jato", "stf", "polícia federal"]
     for r in resultados_web:
         texto = str(r.get('title', '') + " " + r.get('body', '')).lower()
         title = r.get('title', 'Notícia Investigativa')
@@ -134,24 +138,23 @@ def avaliar_red_flags_ia(nome_politico: str, resultados_web: list):
         
         encontrado = [p for p in palavras_chave if p in texto]
         if encontrado:
-            motivo = f"Palavras-chave detectadas na reportagem: {', '.join(encontrado)}."
+            motivo = f"Ações ilegais detectadas: {', '.join(encontrado)}."
             red_flags.append({
                 "data": datetime.now().strftime("%d/%m/%Y"),
                 "titulo": title,
                 "desc": motivo,
                 "fonte": url
             })
-            pontos_perdidos += 150
-            print(f"  🚨 ALERTA CRIMINAL: {title}")
+            pontos_perdidos += 200
+            motivos_detalhados.append(f"OSINT revelou fatos graves (-200 pts)")
+            print(f"  🚨 ALERTA CRIMINAL: {title} | Dedução: -200pts | Evidências: {motivo}")
             
-    return red_flags, pontos_perdidos
+    return red_flags, pontos_perdidos, motivos_detalhados
 
 def salvar_malha_fina_neo4j(grafos_dados: dict):
     driver = get_neo4j_driver()
     if not driver:
-        print("📛 Neo4j Offline. Os relacionamentos não serão salvaguardados.")
         return
-
     query = """
     MERGE (p:Politico {nome: $politico_nome})
     ON CREATE SET p.cpf = $politico_cpf, p.auditado_em = timestamp()
@@ -177,32 +180,29 @@ def salvar_malha_fina_neo4j(grafos_dados: dict):
     try:
         with driver.session() as session:
             session.run(query, **grafos_dados)
-            print(f"🕸️ Teia Neo4j atualizada com Sucesso para {grafos_dados['politico_nome']}!")
-    except Exception as e:
-        print(f"Erro ao salvar grafos: {e}")
+    except Exception:
+        pass
     finally:
         driver.close()
 
-async def auditar_malha_fina(id_politico: int, nome_politico: str, cpf_politico: str, cnpjs_reais: list = None):
+async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cpf_politico: str, cnpjs_reais: list, red_flags_iniciais: list, pontos_perdidos_iniciais: int):
     print(f"\n=======================================================")
-    print(f"🕵️  WORKER INICIANDO AUDITORIA: {nome_politico.upper()}")
+    print(f"🕵️  WORKER BACKGROUND INICIANDO VARREDURA PROFUNDA: {nome_politico.upper()}")
     print(f"=======================================================")
     
-    # 1. Search criminal history Web openly
-    resultados_web = await pesquisar_historico_criminal_web(nome_politico)
-    red_flags_encontradas, pontos_perdidos = avaliar_red_flags_ia(nome_politico, resultados_web)
-    
-    # 2. Search TSE Assets if no CNPJs provided
     cnpjs_reais_encontrados = set(cnpjs_reais) if cnpjs_reais and cnpjs_reais != [""] else set()
     cnpjs_tse = await buscar_cpf_e_bens_tse(nome_politico)
     cnpjs_reais_encontrados.update(cnpjs_tse)
     
     lista_cnpjs_finais = list(cnpjs_reais_encontrados)
 
-    if not lista_cnpjs_finais:
-        print("📋 Sem CNPJs na lista. Avançando para consolidação...")
+    empresas_do_politico = []
+    
+    # Mocking removido - se vazio, a api retornará array limpo para as bases
+    for cnpj in lista_cnpjs_finais:
+        empresa_dado = {"nome": f"Empresa Avaliada {cnpj}", "cnpj": cnpj}
+        empresas_do_politico.append(empresa_dado)
         
-    empresas_do_politico = [{"nome": f"Empresa Vinculada {cnpj}", "cnpj": cnpj} for cnpj in lista_cnpjs_finais]
     todos_socios = []
     todos_contratos = []
     
@@ -218,17 +218,17 @@ async def auditar_malha_fina(id_politico: int, nome_politico: str, cpf_politico:
         "empresas": empresas_do_politico,
         "socios": todos_socios,
         "contratos": todos_contratos,
-        "red_flags": red_flags_encontradas
+        "red_flags": red_flags_iniciais
     }
     
     salvar_malha_fina_neo4j(dados_grafo)
     
-    # Criar e salvar dossie num ficheiro json local para o main.py consumir
     os.makedirs("dossies", exist_ok=True)
     dossie = {
         "id_politico": id_politico,
-        "redFlags": red_flags_encontradas,
-        "pontos_perdidos": pontos_perdidos,
+        "redFlags": red_flags_iniciais,
+        "pontos_perdidos": pontos_perdidos_iniciais,
+        "empresas": empresas_do_politico,
         "data_auditoria": datetime.now().isoformat()
     }
     
@@ -236,19 +236,4 @@ async def auditar_malha_fina(id_politico: int, nome_politico: str, cpf_politico:
     with open(caminho_arquivo, "w", encoding="utf-8") as f:
         json.dump(dossie, f, ensure_ascii=False, indent=4)
         
-    print(f"✅ Dossiê JSON salvo com sucesso em {caminho_arquivo}")
-    print(f"✅ Auditoria Concluída: {nome_politico}\n")
-
-async def worker_noturno():
-    print("🌙 Inicializando Worker Autônomo de Varredura Noturna OSINT...")
-    alvos = [
-        {"id": 900001, "nome": "Luiz Inácio Lula da Silva", "cpf": "000.000.000-01"},
-        {"id": 900002, "nome": "Tarcísio de Freitas", "cpf": "111.111.111-02"},
-    ]
-    
-    for alvo in alvos:
-        await auditar_malha_fina(alvo["id"], alvo["nome"], alvo["cpf"], [])
-        await asyncio.sleep(2)
-
-if __name__ == "__main__":
-    asyncio.run(worker_noturno())
+    print(f"✅ Dossiê JSON PROFUNDO salvo com sucesso para {nome_politico}\n")

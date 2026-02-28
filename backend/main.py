@@ -1,12 +1,15 @@
 import requests
 import uvicorn
 import asyncio
-import random
 import os
 import json
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from agente_coletor_autonomo import auditar_malha_fina
+from agente_coletor_autonomo import (
+    pesquisar_historico_criminal_sync, 
+    avaliar_red_flags_ia, 
+    auditar_malha_fina_assincrona
+)
 from duckduckgo_search import DDGS
 
 app = FastAPI(title="GovTech Transparência API")
@@ -21,7 +24,7 @@ app.add_middleware(
 
 CAMARA_API = "https://dadosabertos.camara.leg.br/api/v2/deputados"
 
-CACHE_POLITICOS = {}
+CACHE_DOSSIES = {}
 
 def obter_score_dossie(id_politico):
     caminho = f"dossies/dossie_{id_politico}.json"
@@ -34,91 +37,30 @@ def obter_score_dossie(id_politico):
             pass
     return "Pendente"
 
-# Mapeamento de Fontes: Nomenclatura Editorial Neutra/Acadêmica
 MAPA_LINHA_EDITORIAL = {
-    # Mídia Progressista (Antiga Esquerda)
-    "CartaCapital": "Progressista",
-    "Brasil 247": "Progressista",
-    "Revista Fórum": "Progressista",
-    "DCM": "Progressista",
-    "Diário do Centro do Mundo": "Progressista",
-    "Intercept Brasil": "Progressista",
-    "Agência Pública": "Progressista",
-    "Opera Mundi": "Progressista",
-
-    # Mídia Conservadora (Antiga Direita)
-    "Jovem Pan": "Conservadora",
-    "Gazeta do Povo": "Conservadora",
-    "Revista Oeste": "Conservadora",
-    "O Antagonista": "Conservadora",
-    "Pleno.News": "Conservadora",
-    "Conexão Política": "Conservadora",
-    "Terra Brasil Notícias": "Conservadora",
-
-    # Mídia Institucional / Corporativa (Antigo Centro)
-    "G1": "Institucional",
-    "UOL": "Institucional",
-    "Folha de S.Paulo": "Institucional",
-    "O Estado de S. Paulo": "Institucional",
-    "Estadão": "Institucional",
-    "O Globo": "Institucional",
-    "CNN Brasil": "Institucional",
-    "Veja": "Institucional",
-    "Metrópoles": "Institucional",
-    "Poder360": "Institucional",
-    "BBC Brasil": "Institucional"
+    "CartaCapital": "Progressista", "Brasil 247": "Progressista", "Revista Fórum": "Progressista", "DCM": "Progressista", 
+    "Diário do Centro do Mundo": "Progressista", "Intercept Brasil": "Progressista", "Agência Pública": "Progressista", "Opera Mundi": "Progressista",
+    "Jovem Pan": "Conservadora", "Gazeta do Povo": "Conservadora", "Revista Oeste": "Conservadora", "O Antagonista": "Conservadora", 
+    "Pleno.News": "Conservadora", "Conexão Política": "Conservadora", "Terra Brasil Notícias": "Conservadora",
+    "G1": "Institucional", "UOL": "Institucional", "Folha de S.Paulo": "Institucional", "O Estado de S. Paulo": "Institucional",
+    "Estadão": "Institucional", "O Globo": "Institucional", "CNN Brasil": "Institucional", "Veja": "Institucional",
+    "Metrópoles": "Institucional", "Poder360": "Institucional", "BBC Brasil": "Institucional"
 }
 
 @app.get("/api/executivo")
 def obter_executivo():
     return {
-        "presidente": {"nome": "Luiz Inácio Lula da Silva", "cargo": "Presidente da República", "foto": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg/800px-Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg", "partido": "PT"},
-        "vice": {"nome": "Geraldo Alckmin", "cargo": "Vice-Presidente", "foto": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Geraldo_Alckmin_em_2023.jpg/800px-Geraldo_Alckmin_em_2023.jpg", "partido": "PSB"}
+        "presidente": {"nome": "Luiz Inácio Lula da Silva", "cargo": "Presidente da República", "foto": "https://upload.wikimedia.org/wikipedia/commons/e/ed/Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg", "partido": "PT"},
+        "vice": {"nome": "Geraldo Alckmin", "cargo": "Vice-Presidente", "foto": "https://upload.wikimedia.org/wikipedia/commons/c/cd/Geraldo_Alckmin_em_2023.jpg", "partido": "PSB"}
     }
 
 @app.get("/api/eleicoes2026/presidenciais")
 def buscar_presidenciais():
     candidatos = [
-        {
-            "id": 900001,
-            "nome": "Luiz Inácio Lula da Silva",
-            "cargo": "Presidente",
-            "siglaPartido": "PT",
-            "siglaUf": "BR",
-            "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg/800px-Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg",
-            "nivel_boss": "👑 Chefão Supremo",
-            "score_auditoria": obter_score_dossie(900001)
-        },
-        {
-            "id": 900002,
-            "nome": "Tarcísio de Freitas",
-            "cargo": "Governador SP",
-            "siglaPartido": "REP",
-            "siglaUf": "SP",
-            "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Tarc%C3%ADsio_Gomes_de_Freitas.jpg/800px-Tarc%C3%ADsio_Gomes_de_Freitas.jpg",
-            "nivel_boss": "👑 Chefão Supremo",
-            "score_auditoria": obter_score_dossie(900002)
-        },
-        {
-            "id": 900003,
-            "nome": "Romeu Zema",
-            "cargo": "Governador MG",
-            "siglaPartido": "NOVO",
-            "siglaUf": "MG",
-            "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Romeu_Zema_Governador_do_Estado_de_Minas_Gerais_-_foto_Pedro_Gontijo.jpg/800px-Romeu_Zema_Governador_do_Estado_de_Minas_Gerais_-_foto_Pedro_Gontijo.jpg",
-            "nivel_boss": "👑 Chefão Supremo",
-            "score_auditoria": obter_score_dossie(900003)
-        },
-        {
-            "id": 900004,
-            "nome": "Ronaldo Caiado",
-            "cargo": "Governador GO",
-            "siglaPartido": "UB",
-            "siglaUf": "GO",
-            "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Ronaldo_Caiado%2C_Governador_do_Estado_de_Goi%C3%A1s.png/800px-Ronaldo_Caiado%2C_Governador_do_Estado_de_Goi%C3%A1s.png",
-            "nivel_boss": "👑 Chefão Supremo",
-            "score_auditoria": obter_score_dossie(900004)
-        }
+        {"id": 900001, "nome": "Luiz Inácio Lula da Silva", "cargo": "Presidente", "siglaPartido": "PT", "siglaUf": "BR", "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg/800px-Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg", "nivel_boss": "👑 Chefão Supremo", "score_auditoria": obter_score_dossie(900001)},
+        {"id": 900002, "nome": "Tarcísio de Freitas", "cargo": "Governador SP", "siglaPartido": "REP", "siglaUf": "SP", "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Tarc%C3%ADsio_Gomes_de_Freitas.jpg/800px-Tarc%C3%ADsio_Gomes_de_Freitas.jpg", "nivel_boss": "👑 Chefão Supremo", "score_auditoria": obter_score_dossie(900002)},
+        {"id": 900003, "nome": "Romeu Zema", "cargo": "Governador MG", "siglaPartido": "NOVO", "siglaUf": "MG", "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Romeu_Zema_Governador_do_Estado_de_Minas_Gerais_-_foto_Pedro_Gontijo.jpg/800px-Romeu_Zema_Governador_do_Estado_de_Minas_Gerais_-_foto_Pedro_Gontijo.jpg", "nivel_boss": "👑 Chefão Supremo", "score_auditoria": obter_score_dossie(900003)},
+        {"id": 900004, "nome": "Ronaldo Caiado", "cargo": "Governador GO", "siglaPartido": "UB", "siglaUf": "GO", "urlFoto": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Ronaldo_Caiado%2C_Governador_do_Estado_de_Goi%C3%A1s.png/800px-Ronaldo_Caiado%2C_Governador_do_Estado_de_Goi%C3%A1s.png", "nivel_boss": "👑 Chefão Supremo", "score_auditoria": obter_score_dossie(900004)}
     ]
     return {"status": "sucesso", "dados": candidatos}
 
@@ -166,31 +108,28 @@ def buscar_politico(nome: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, cnpjs_suspeitos: list):
+def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, cnpjs_suspeitos: list, redizadas: list, pontos: int):
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(auditar_malha_fina(id_politico, nome_politico, cpf, cnpjs_suspeitos))
+        loop.run_until_complete(auditar_malha_fina_assincrona(id_politico, nome_politico, cpf, cnpjs_suspeitos, redizadas, pontos))
     except Exception as e:
-        print(f"Erro no Worker Síncrono: {e}")
+        print(f"Erro no Worker Assíncrono Background: {e}")
 
 @app.get("/api/politico/detalhes/{id}")
 def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
-    if id in CACHE_POLITICOS:
-        dado_cache = CACHE_POLITICOS[id]
+    if id in CACHE_DOSSIES:
+        dado_cache = CACHE_DOSSIES[id]
         score_atual = obter_score_dossie(id)
         if score_atual != "Pendente":
             dado_cache["score_auditoria"] = score_atual
             
         return {"status": "sucesso", "dados": dado_cache, "cached": True}
 
-    # Removendo todos os blocos de if id in presidenciais_simulados
     try:
         res_basico = requests.get(f"{CAMARA_API}/{id}")
         if res_basico.status_code != 200:
-            # Não encontrou deputado, retornar dados vazios ou mínimos
-            dado_basico = CACHE_POLITICOS.get(id, {"nome": f"ID {id}", "cargo": "Desconhecido"})
-            
+            dado_basico = CACHE_DOSSIES.get(id, {"nome": f"ID {id}", "cargo": "Desconhecido"})
             nome_completo = dado_basico.get("nome", "Desconhecido")
             cargo = dado_basico.get("cargo", "Desconhecido")
             partido = dado_basico.get("partido", "SD")
@@ -199,10 +138,8 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
             cpf_oculto = "00000000000"
             despesas_data = []
             orgaos_data = []
-
         else:
             api_dado = res_basico.json().get("dados", {})
-            
             ultimo_status = api_dado.get("ultimoStatus", {})
             nome_completo = ultimo_status.get("nomeEleitoral", api_dado.get("nomeCivil", "Desconhecido"))
             cargo = "Deputado Federal"
@@ -221,6 +158,40 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         print(f"Erro ao buscar os dados do político {id} na câmara: {e}")
         raise HTTPException(status_code=500, detail="Erro interno ao buscar político")
 
+    # REGRA NÚMERO 3 E 4: FIM DA NOTA FALSA E MOCK NO PAINEL
+    # A auditoria dos crimes é SÍNCRONA antes do return, caso o Dossiê não exista!
+    caminho_dossie = f"dossies/dossie_{id}.json"
+    historico_redflags = []
+    score_base = 1000
+    pontos_perdidos = 0
+    motivos_detalhados = []
+    
+    if os.path.exists(caminho_dossie):
+        try:
+            with open(caminho_dossie, "r", encoding="utf-8") as f:
+                dossie_cache = json.load(f)
+                historico_redflags = dossie_cache.get("redFlags", [])
+                pontos_perdidos = dossie_cache.get("pontos_perdidos", 0)
+        except Exception:
+            pass
+    else:
+        # Não está no CACHE de FILE SYSTEM, vamos Sincronizar OSINT Básico pra Tela inicial antes de soltar o JSON.
+        print(f"⚠️ Dossiê INEXISTENTE para Secção. Iniciando Coleta OSINT Criminal SÍNCRONA...")
+        web_resultados = pesquisar_historico_criminal_sync(nome_completo)
+        historico_redflags, pontos_perdidos, motivos_detalhados = avaliar_red_flags_ia(nome_completo, web_resultados)
+        
+        # Cria Preview Base na hora pra proteger DB
+        os.makedirs("dossies", exist_ok=True)
+        with open(caminho_dossie, "w", encoding="utf-8") as file:
+            json.dump({
+                "id_politico": id, 
+                "redFlags": historico_redflags, 
+                "pontos_perdidos": pontos_perdidos,
+                "data_auditoria": datetime.now().isoformat()
+            }, file, ensure_ascii=False, indent=4)
+        print("✅ Red Flags Iniciais salvas no Dossiê Temporário.")
+
+    score_base -= pontos_perdidos
 
     empresas_reais = []
     cnpjs_para_osint = []
@@ -235,7 +206,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         total_despesas += valor_despesa
 
         empresas_reais.append({
-            "nome": d.get("nomeFornecedor", "Fornecedor"),
+            "nome": d.get("nomeFornecedor", "Fornecedor Local"),
             "cargo": d.get("tipoDespesa", "Despesa"),
             "valor": f"R$ {valor_despesa:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
             "fonte": d.get("urlDocumento", "")
@@ -249,41 +220,19 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
             "presence": 100
         })
 
-    score_base = 1000
-    motivos_deducao = []
     if total_despesas > 20000:
         score_base -= 150
-        motivos_deducao.append(f"Alta movimentação nas últimas 5 despesas (R$ {total_despesas:,.2f})")
+        motivos_detalhados.append(f"Alta movimentação suspeita nas contas de Gabinete (+20k)")
     
     if len(projetos_reais) == 0:
         score_base -= 50
-        motivos_deducao.append("Baixa participação em comissões recentes")
+        motivos_detalhados.append("Ociosidade e ausência nas Comissões")
 
-    caminho_dossie = f"dossies/dossie_{id}.json"
-    historico_redflags = []
+    score_final = max(0, score_base)
+    explicacao_score = f"Deduções Ativas: {', '.join(motivos_detalhados)}" if motivos_detalhados else "Comportamento padrão na base de registros."
     
-    if os.path.exists(caminho_dossie):
-        try:
-            with open(caminho_dossie, "r", encoding="utf-8") as f:
-                dossie_cache = json.load(f)
-                historico_redflags = dossie_cache.get("redFlags", [])
-                score_base -= dossie_cache.get("pontos_perdidos", 0)
-                motivos_deducao.append(f"Alerta OSINT: {len(historico_redflags)} processos graves/notícias no STF/PF")
-        except:
-            pass
-
-    score_final = max(0, score_base) if os.path.exists(caminho_dossie) else "Pendente"
-
-    explicacao_score = "Comportamento dentro do padrão no histórico analisado."
-    if motivos_deducao:
-        explicacao_score = f"Deduções aplicadas: {', '.join(motivos_deducao)}."
-    elif score_final == "Pendente":
-        explicacao_score = "O Worker OSINT ainda está auditando este político. Aguarde."
-    
-    if cnpjs_para_osint:
-        background_tasks.add_task(disparar_worker_assincrono, id, nome_completo, cpf_oculto, cnpjs_para_osint)
-    else:
-        background_tasks.add_task(disparar_worker_assincrono, id, nome_completo, cpf_oculto, [""])
+    # Aciona Worker PROFUNDO pras CNPJs no Background
+    background_tasks.add_task(disparar_worker_assincrono, id, nome_completo, cpf_oculto, cnpjs_para_osint, historico_redflags, pontos_perdidos)
 
     noticias_limpas = []
     try:
@@ -306,7 +255,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
                     "url": n.get("url", "#")
                 })
     except Exception as e:
-        print(f"Erro ao buscar noticias: {e}")
+        print(f"Erro ao buscar noticias integradas: {e}")
 
     dado_completo = {
         "id": id,
@@ -318,7 +267,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         "score_auditoria": score_final,
         "explicacao_score": explicacao_score,
         "badges": [
-            {"id": 1, "nome": "Auditoria IA Iniciada", "color": "bg-purple-500/10 border-purple-500/50 text-purple-500", "icon": "Fingerprint"}
+            {"id": 1, "nome": "Auditoria Processada", "color": "bg-purple-500/10 border-purple-500/50 text-purple-500", "icon": "Fingerprint"}
         ],
         "redFlags": historico_redflags,
         "empresas": empresas_reais,
@@ -326,7 +275,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         "noticias": noticias_limpas
     }
     
-    CACHE_POLITICOS[id] = dado_completo
+    CACHE_DOSSIES[id] = dado_completo
     return {"status": "sucesso", "dados": dado_completo}
 
 if __name__ == "__main__":
