@@ -4,6 +4,12 @@ import asyncio
 import os
 import json
 from datetime import datetime
+from dotenv import load_dotenv
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+dotenv_path = os.path.join(BASE_DIR, '.env')
+load_dotenv(dotenv_path)
+
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from duckduckgo_search import DDGS
@@ -109,12 +115,12 @@ def buscar_politico(nome: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, cnpjs_suspeitos: list, red_flags: list, pts_perdidos: int, despesas_brutas: list):
+def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, cnpjs_fornecedores: list, red_flags: list, pts_perdidos: int, despesas_brutas: list):
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(auditar_malha_fina_assincrona(
-            id_politico, nome_politico, cpf_real=cpf, cnpjs_declarados=cnpjs_suspeitos, 
+            id_politico, nome_politico, cpf_real=cpf, cnpjs_fornecedores=cnpjs_fornecedores, 
             red_flags_iniciais=red_flags, pontos_perdidos_iniciais=pts_perdidos, despesas_para_analise=despesas_brutas
         ))
     except Exception as e:
@@ -199,13 +205,13 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
     score_base -= pontos_perdidos
 
     empresas_reais = list(empresas_geradas) if empresas_geradas else []
-    cnpjs_para_osint = []
+    cnpjs_fornecedores_temp = []
     total_despesas = 0
 
     for d in despesas_data:
         cnpj_raw = str(d.get("cnpjCpfFornecedor", "")).replace(".", "").replace("-", "").replace("/", "").strip()
         if cnpj_raw and len(cnpj_raw) == 14:
-            cnpjs_para_osint.append(cnpj_raw)
+            cnpjs_fornecedores_temp.append(cnpj_raw)
 
         valor_despesa = d.get('valorDocumento', 0)
         total_despesas += valor_despesa
@@ -218,6 +224,8 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
                 "valor": f"R$ {valor_despesa:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
                 "fonte": d.get("urlDocumento", "")
             })
+
+    cnpjs_fornecedores = list(set(cnpjs_fornecedores_temp))
 
     projetos_reais = []
     for o in orgaos_data:
@@ -240,7 +248,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
     explicacao_score = f"Deduções aplicadas: {', '.join(motivos_detalhados)}." if motivos_detalhados else "Comportamento aparentemente padrão no histórico analisado."
     
     # Executa Worker Assíncrono da BrasilAPI/IBAMA em background repassando despesas
-    background_tasks.add_task(disparar_worker_assincrono, id, nome_completo, cpf_oculto, cnpjs_para_osint, historico_redflags, pontos_perdidos, despesas_data[:30])
+    background_tasks.add_task(disparar_worker_assincrono, id, nome_completo, cpf_oculto, cnpjs_fornecedores, historico_redflags, pontos_perdidos, despesas_data[:30])
 
     noticias_limpas = []
     try:

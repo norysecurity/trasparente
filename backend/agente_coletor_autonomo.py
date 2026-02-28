@@ -7,7 +7,10 @@ from datetime import datetime
 from dotenv import load_dotenv
 from duckduckgo_search import DDGS
 
-load_dotenv()
+# Forçar leitura do .env na raiz do projeto
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+dotenv_path = os.path.join(BASE_DIR, '.env')
+load_dotenv(dotenv_path)
 
 CGU_API_KEY = os.getenv("CGU_API_KEY", "")
 
@@ -177,7 +180,7 @@ def avaliar_score_inicial_sincrono(nome_politico: str):
             
     return pontos_perdidos, red_flags, motivos
 
-async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cpf_real: str = None, cnpjs_declarados: list = None, red_flags_iniciais: list = None, pontos_perdidos_iniciais: int = 0, despesas_para_analise: list = None):
+async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cpf_real: str = None, cnpjs_fornecedores: list = None, red_flags_iniciais: list = None, pontos_perdidos_iniciais: int = 0, despesas_para_analise: list = None):
     """
     Motor Central de Auditoria Governamental Background.
     Cruza Receita Federal, CGU, IBAMA e TCU em tempo real.
@@ -190,6 +193,11 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
     red_flags = list(red_flags_iniciais) if red_flags_iniciais else []
     empresas_detalhadas = []
     
+    # 1. ISOLANDO SOBRENOMES DO POLÍTICO
+    partes_nome = nome_politico.lower().split()
+    preposicoes = ["dos", "das", "de", "do", "da", "filho", "junior", "neto"]
+    sobrenomes_politico = [p for p in partes_nome if len(p) > 2 and p not in preposicoes]
+    
     if not cpf_real or cpf_real == "00000000000":
         print("⚠️ CPF real não fornecido ou nulo. A auditoria profunda na CGU PEP não ocorrerá.")
     else:
@@ -197,24 +205,45 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
         if is_pep:
             print("  🚨 POLÍTICO IDENTIFICADO COMO PEP ATIVO NA CGU.")
     
-    cnpjs = set(cnpjs_declarados) if cnpjs_declarados else set()
+    # 2. Limite a análise aos primeiros 15 itens
+    cnpjs = set(cnpjs_fornecedores[:15]) if cnpjs_fornecedores else set()
     cnpjs_tse = buscar_cpf_e_bens_tse_sync(nome_politico)
     cnpjs.update(cnpjs_tse)
     cnpjs = [c for c in cnpjs if c and c.strip()]
     
-    # 1. VARREDURA DE EMPRESAS (RECEITA FEDERAL)
+    # 3. VARREDURA DE EMPRESAS FORNECEDORAS (RECEITA FEDERAL)
     for cnpj in cnpjs:
         dados_receita = await consultar_brasil_api_cnpj(cnpj)
         if dados_receita:
             nome_empresa = dados_receita.get("razao_social")
+            socios = [s.get("nome_socio", "") for s in dados_receita.get("qsa", [])]
             empresas_detalhadas.append({
                 "nome": nome_empresa,
                 "cnpj": cnpj,
-                "socios": [s.get("nome_socio") for s in dados_receita.get("qsa", [])],
+                "socios": socios,
                 "valor": "Consulta BrasilAPI Confidencial"
             })
             
-            # 2. VARREDURA DE SANÇÕES PARA A EMPRESA (CGU)
+            # ALGORITMO CRÍTICO DE NEPOTISMO E LARANJAS
+            nepotismo_encontrado = False
+            for socio in socios:
+                socio_lower = str(socio).lower()
+                for sobrenome in sobrenomes_politico:
+                    if sobrenome in socio_lower:
+                        print(f"  🩸 MATCH DE SOBRENOME DETECTADO: '{sobrenome.upper()}' cruzado com sócio '{str(socio).upper()}' (Empresa Fornecedora: {nome_empresa})")
+                        pontos_perdidos += 400
+                        red_flags.append({
+                            "data": datetime.now().strftime("%d/%m/%Y"),
+                            "titulo": "🚨 ALERTA: Possível Nepotismo / Laranja",
+                            "desc": f"Fornecedor de gabinete possui sócio que partilha o sobrenome com o político.",
+                            "fonte": f"https://brasilapi.com.br/api/cnpj/v1/{cnpj}"
+                        })
+                        nepotismo_encontrado = True
+                        break # Encerra o loop de sobrenomes
+                if nepotismo_encontrado:
+                    break # Encerra o loop de socios
+            
+            # 4. VARREDURA DE SANÇÕES PARA A EMPRESA (CGU)
             sancoes = await consultar_cgu_sancoes(cnpj)
             if sancoes:
                 pontos_perdidos += 300
@@ -231,7 +260,7 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
                 "socios": []
             })
 
-    # 3. VARREDURA DE MULTAS AMBIENTAIS (IBAMA)
+    # 5. VARREDURA DE MULTAS AMBIENTAIS (IBAMA)
     multas_ibama = await consultar_ibama_multas(nome_politico)
     if multas_ibama:
         for multa in multas_ibama:
@@ -243,7 +272,7 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
                 "fonte": "https://dadosabertos.ibama.gov.br/"
             })
 
-    # 4. RASTREIO DE EMENDAS PARLAMENTARES (PIX)
+    # 6. RASTREIO DE EMENDAS PARLAMENTARES (PIX)
     emendas = []
     if cpf_real and cpf_real != "00000000000":
         dados_emendas = await consultar_cgu_emendas(cpf_real)
