@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
 import * as dotenv from "dotenv";
 import * as path from "path";
 
@@ -11,15 +10,13 @@ export async function POST(req: Request) {
         const body = await req.json();
         const { politico_nome, empresas, redFlags, despesas } = body;
 
-        // Validando Chave
-        const apiKey = process.env.GEMINI_API_KEY;
+        // Validando Chave Qwen
+        const apiKey = process.env.QWEN_API_KEY;
         if (!apiKey) {
             return NextResponse.json({
-                error: "GEMINI_API_KEY não configurada no servidor Next.js."
+                error: "QWEN_API_KEY não configurada no servidor Next.js."
             }, { status: 500 });
         }
-
-        const ai = new GoogleGenAI({ apiKey: apiKey });
 
         const prompt = `Você é um Analista Punitivo de OSINT e Corrupção (Estilo Operação Lava Jato / TCU). 
         Você está analisando o dossiê do político brasileiro: ${politico_nome}.
@@ -49,16 +46,26 @@ export async function POST(req: Request) {
         Gere o laudo pericial final agora:
         `;
 
-        // Executando no Modelo Obrigatório Gemini (Fallback para Flash perante Rate Limit)
-        const response = await ai.models.generateContent({
-            model: "gemini-3-flash-preview",
-            contents: prompt,
-            config: {
-                temperature: 0.2, // Baixa temperatura para fatos matemáticos/análise fria
-            }
+        // Executando via Fetch em vez de pacote externo
+        const qwenResponse = await fetch("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${apiKey}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: "qwen-plus",
+                messages: [{ role: "user", content: prompt }],
+                temperature: 0.2
+            })
         });
 
-        const parecerText = response.text;
+        if (!qwenResponse.ok) {
+            throw new Error(`Falha HTTP DashScope: ${qwenResponse.status}`);
+        }
+
+        const qwenData = await qwenResponse.json();
+        const parecerText = qwenData.choices[0].message.content;
 
         return NextResponse.json({
             status: "sucesso",
