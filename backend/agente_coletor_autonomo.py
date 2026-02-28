@@ -76,12 +76,38 @@ async def buscar_contratos_portal_transparencia(cnpj: str) -> list:
         print(f"  ⚠️ Falha ao buscar contratos: {e}")
         return []
 
+async def buscar_cpf_e_bens_tse(nome_politico: str) -> list:
+    """
+    Busca declarações de bens no TSE via DuckDuckGo para encontrar CNPJs Reais.
+    """
+    print(f"🕵️‍♂️ Buscando declarações no TSE para: {nome_politico}")
+    query = f'site:divulgacandcontas.tse.jus.br "{nome_politico}" bens declarados'
+    cnpjs_encontrados = set()
+    try:
+        def fetch_ddgs():
+            with DDGS() as ddgs:
+                return list(ddgs.text(query, region='br-pt', safesearch='off', max_results=10))
+        
+        resultados = await asyncio.to_thread(fetch_ddgs)
+        for r in resultados:
+            texto = r.get('body', '') + " " + r.get('title', '')
+            # Regex para formato de CNPJ padrão XX.XXX.XXX/XXXX-XX ou XXXXXXXXXXXXXX
+            cnpjs = re.findall(r'\b\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}\b|\b\d{14}\b', texto)
+            for c in cnpjs:
+                cnpjs_encontrados.add(re.sub(r'[^0-9]', '', c))
+                
+        print(f"  ✅ Encontrados {len(cnpjs_encontrados)} CNPJs nas declarações do TSE.")
+        return list(cnpjs_encontrados)
+    except Exception as e:
+        print(f"  ❌ Erro na busca do TSE: {e}")
+        return []
+
 async def pesquisar_historico_criminal_web(nome_politico: str):
     """
     Pesquisa em tempo real o histórico do político na Web (DDG) focando na PF e STF.
     """
-    print(f"🌐 Iniciando OSINT na Web Aberta (DuckDuckGo) para: {nome_politico}")
-    query = f'"{nome_politico}" investigações corrupção "STF" OR "Polícia Federal"'
+    print(f"🌐 Iniciando OSINT na Web Aberta (DuckDuckGo STF/PF) para: {nome_politico}")
+    query = f'"{nome_politico}" (STF OR "Polícia Federal" OR "Ministério Público" OR corrupção OR inquérito OR "Lava Jato" OR indiciado)'
     resultados = []
     try:
         def fetch_ddgs():
@@ -99,7 +125,7 @@ def avaliar_red_flags_ia(nome_politico: str, resultados_web: list):
     """
     red_flags = []
     pontos_perdidos = 0
-    palavras_chave = ["lava jato", "propina", "inquérito", "denunciado", "jbs", "stf", "polícia federal", "desvio", "corrupção", "condenado", "lavagem"]
+    palavras_chave = ["lava jato", "propina", "inquérito", "denunciado", "indiciado", "jbs", "stf", "polícia federal", "desvio", "corrupção", "condenado", "lavagem", "réu"]
     
     for r in resultados_web:
         texto = str(r.get('title', '') + " " + r.get('body', '')).lower()
@@ -166,11 +192,17 @@ async def auditar_malha_fina(id_politico: int, nome_politico: str, cpf_politico:
     resultados_web = await pesquisar_historico_criminal_web(nome_politico)
     red_flags_encontradas, pontos_perdidos = avaliar_red_flags_ia(nome_politico, resultados_web)
     
-    if not cnpjs_reais or cnpjs_reais == [""]:
+    # 2. Search TSE Assets if no CNPJs provided
+    cnpjs_reais_encontrados = set(cnpjs_reais) if cnpjs_reais and cnpjs_reais != [""] else set()
+    cnpjs_tse = await buscar_cpf_e_bens_tse(nome_politico)
+    cnpjs_reais_encontrados.update(cnpjs_tse)
+    
+    lista_cnpjs_finais = list(cnpjs_reais_encontrados)
+
+    if not lista_cnpjs_finais:
         print("📋 Sem CNPJs na lista. Avançando para consolidação...")
-        cnpjs_reais = []
         
-    empresas_do_politico = [{"nome": f"Fornecedor {cnpj}", "cnpj": cnpj} for cnpj in cnpjs_reais]
+    empresas_do_politico = [{"nome": f"Empresa Vinculada {cnpj}", "cnpj": cnpj} for cnpj in lista_cnpjs_finais]
     todos_socios = []
     todos_contratos = []
     

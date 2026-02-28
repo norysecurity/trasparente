@@ -184,30 +184,23 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
             
         return {"status": "sucesso", "dados": dado_cache, "cached": True}
 
-    # Se for um ID simulado de Presidenciável
-    presidenciais_simulados = {
-        900001: {"nome": "Luiz Inácio Lula da Silva", "cargo": "Presidente", "partido": "PT", "uf": "BR", "foto": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg/800px-Foto_Oficial_de_Luiz_In%C3%A1cio_Lula_da_Silva_como_Presidente_da_Rep%C3%BAblica_em_2023.jpg"},
-        900002: {"nome": "Tarcísio de Freitas", "cargo": "Governador SP", "partido": "REP", "uf": "SP", "foto": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Tarc%C3%ADsio_Gomes_de_Freitas.jpg/800px-Tarc%C3%ADsio_Gomes_de_Freitas.jpg"},
-        900003: {"nome": "Romeu Zema", "cargo": "Governador MG", "partido": "NOVO", "uf": "MG", "foto": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/Romeu_Zema_Governador_do_Estado_de_Minas_Gerais_-_foto_Pedro_Gontijo.jpg/800px-Romeu_Zema_Governador_do_Estado_de_Minas_Gerais_-_foto_Pedro_Gontijo.jpg"},
-        900004: {"nome": "Ronaldo Caiado", "cargo": "Governador GO", "partido": "UB", "uf": "GO", "foto": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/91/Ronaldo_Caiado%2C_Governador_do_Estado_de_Goi%C3%A1s.png/800px-Ronaldo_Caiado%2C_Governador_do_Estado_de_Goi%C3%A1s.png"}
-    }
+    # Removendo todos os blocos de if id in presidenciais_simulados
+    try:
+        res_basico = requests.get(f"{CAMARA_API}/{id}")
+        if res_basico.status_code != 200:
+            # Não encontrou deputado, retornar dados vazios ou mínimos
+            dado_basico = CACHE_POLITICOS.get(id, {"nome": f"ID {id}", "cargo": "Desconhecido"})
+            
+            nome_completo = dado_basico.get("nome", "Desconhecido")
+            cargo = dado_basico.get("cargo", "Desconhecido")
+            partido = dado_basico.get("partido", "SD")
+            uf = dado_basico.get("uf", "BR")
+            foto = dado_basico.get("foto", "")
+            cpf_oculto = "00000000000"
+            despesas_data = []
+            orgaos_data = []
 
-    if id in presidenciais_simulados:
-        dado_basico = presidenciais_simulados[id]
-        nome_completo = dado_basico["nome"]
-        cargo = dado_basico["cargo"]
-        partido = dado_basico["partido"]
-        uf = dado_basico["uf"]
-        foto = dado_basico["foto"]
-        cpf_oculto = "00000000000"
-        
-        # Simulando uma despesa para iniciar worker
-        despesas_data = [{"cnpjCpfFornecedor": "00000000000191", "nomeFornecedor": "Governo Federal", "tipoDespesa": "Publicidade", "valorDocumento": 500000, "urlDocumento": "https://portaltransparencia.gov.br"}]
-        orgaos_data = [{"nomeOrgao": "Gabinete do Executivo", "tituloAbreviado": "Titular"}]
-    else:
-        try:
-            res_basico = requests.get(f"{CAMARA_API}/{id}")
-            res_basico.raise_for_status()
+        else:
             api_dado = res_basico.json().get("dados", {})
             
             ultimo_status = api_dado.get("ultimoStatus", {})
@@ -223,8 +216,11 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
 
             res_orgaos = requests.get(f"{CAMARA_API}/{id}/orgaos", params={"itens": 5, "ordem": "DESC", "ordenarPor": "idOrgao"})
             orgaos_data = res_orgaos.json().get("dados", []) if res_orgaos.status_code == 200 else []
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+            
+    except Exception as e:
+        print(f"Erro ao buscar os dados do político {id} na câmara: {e}")
+        raise HTTPException(status_code=500, detail="Erro interno ao buscar político")
+
 
     empresas_reais = []
     cnpjs_para_osint = []
