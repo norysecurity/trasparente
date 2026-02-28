@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ShieldAlert, Fingerprint, FileText, Banknote, Building2, Scale, ArrowLeft, ExternalLink, Newspaper } from "lucide-react";
+import { ShieldAlert, Fingerprint, FileText, Banknote, Building2, Scale, ArrowLeft, ExternalLink, Newspaper, Bot } from "lucide-react";
+import ReactMarkdown from 'react-markdown';
 
 export default function PoliticoPerfil() {
     const params = useParams();
@@ -13,6 +14,10 @@ export default function PoliticoPerfil() {
     const [filtroEditorial, setFiltroEditorial] = useState("Todas as Fontes");
     const [politicoData, setPoliticoData] = useState<any>(null);
     const [isTeiaModalOpen, setIsTeiaModalOpen] = useState(false);
+
+    // IA States
+    const [isAuditando, setIsAuditando] = useState(false);
+    const [parecerIA, setParecerIA] = useState<string | null>(null);
 
     useEffect(() => {
         if (!idPolitico) return;
@@ -27,6 +32,35 @@ export default function PoliticoPerfil() {
             .catch(err => console.error("Erro ao buscar dossiê ID:", err))
             .finally(() => setLoading(false));
     }, [idPolitico]);
+
+    const gerarParecerAceleracionista = async () => {
+        if (!politicoData) return;
+        setIsAuditando(true);
+        setParecerIA(null);
+
+        try {
+            const res = await fetch("/api/auditoria-ai", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    politico_nome: politicoData.nome,
+                    empresas: politicoData.empresas,
+                    redFlags: politicoData.redFlags,
+                    despesas: [] // Será populado se a API principal enviar as puras
+                })
+            });
+            const dat = await res.json();
+            if (dat.status === "sucesso") {
+                setParecerIA(dat.insight);
+            } else {
+                setParecerIA("Erro ao contatar Tribunal AI: " + dat.error);
+            }
+        } catch (e) {
+            setParecerIA("Falha na varredura. IA Indisponível no momento.");
+        } finally {
+            setIsAuditando(false);
+        }
+    };
 
     if (loading) {
         return (
@@ -324,6 +358,46 @@ export default function PoliticoPerfil() {
                         <ShieldAlert className="w-8 h-8 group-hover:scale-110 transition-transform" />
                         🚨 ABRIR DOSSIÊ DE AUDITORIA COMPLETA
                     </button>
+                </motion.div>
+
+                {/* WIDGET GEMINI IA */}
+                <motion.div
+                    initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.9 }}
+                    className="mt-12 bg-neutral-900/40 border border-emerald-500/30 rounded-3xl p-8 relative overflow-hidden"
+                >
+                    <div className="absolute top-0 left-0 w-64 h-64 bg-emerald-500/5 blur-[80px] rounded-full pointer-events-none" />
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8 relative z-10">
+                        <div>
+                            <h3 className="text-2xl font-black text-emerald-400 flex items-center gap-3">
+                                <Bot className="w-8 h-8" /> Parecer do Fiscal IA (Gemini 3)
+                            </h3>
+                            <p className="text-sm text-neutral-400 mt-2 max-w-2xl">
+                                Acione a Inteligência Artificial especializada em Controle Externo para ler os JSONs cruzados das empresas declaradas, red flags no STF e identificar conluios invisíveis a olho nu.
+                            </p>
+                        </div>
+                        <button
+                            onClick={gerarParecerAceleracionista}
+                            disabled={isAuditando}
+                            className={`shrink-0 font-bold uppercase tracking-widest text-xs px-8 py-4 rounded-xl transition-all flex items-center gap-2 ${isAuditando ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/50 hover:bg-emerald-500 hover:text-white shadow-[0_0_15px_rgba(16,185,129,0.2)] hover:shadow-[0_0_30px_rgba(16,185,129,0.5)]'}`}
+                        >
+                            {isAuditando ? (
+                                <><div className="w-4 h-4 border-2 border-neutral-500 border-t-transparent rounded-full animate-spin"></div> Vasculhando...</>
+                            ) : (
+                                <><Fingerprint className="w-4 h-4" /> Executar Varredura Profunda</>
+                            )}
+                        </button>
+                    </div>
+
+                    {parecerIA && (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+                            className="bg-neutral-950 border border-emerald-500/20 p-6 rounded-2xl relative z-10"
+                        >
+                            <div className="prose prose-invert prose-emerald max-w-none prose-p:text-sm prose-p:leading-relaxed prose-p:text-neutral-300 prose-strong:text-emerald-400">
+                                <ReactMarkdown>{parecerIA}</ReactMarkdown>
+                            </div>
+                        </motion.div>
+                    )}
                 </motion.div>
 
                 {/* MODAL INTERNO DO GRAFO SIMULADO */}
