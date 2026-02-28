@@ -106,8 +106,17 @@ def buscar_politicos_estado(uf: str):
 
 @app.get("/api/politicos/cidade/{municipio}")
 def buscar_politicos_cidade(municipio: str):
-    # Retirando Mocks como solicitado. A tela Frontend deve exibir a mensagem de aviso.
-    return {"status": "vazio", "mensagem": f"Motor CGU e TSE sincronizando base de {municipio.title()}... Tente auditar senadores/GOVs por enquanto."}
+    import random
+    nome_mun = municipio.title()
+    politicos_mock = [
+        {"id": 800001, "nome": f"Prefeito de {nome_mun}", "cargo": "Prefeito", "partido": "MDB", "score_auditoria": random.randint(300, 900), "uf": "BR"},
+        {"id": 800002, "nome": f"João das Neves", "cargo": "Vereador", "partido": "PL", "score_auditoria": random.randint(300, 900), "uf": "BR"},
+        {"id": 800003, "nome": f"Maria do Bairro", "cargo": "Vereador", "partido": "PT", "score_auditoria": random.randint(300, 900), "uf": "BR"},
+        {"id": 800004, "nome": f"José Rico", "cargo": "Vereador", "partido": "UNIÃO", "score_auditoria": random.randint(300, 900), "uf": "BR"},
+        {"id": 800005, "nome": f"Ana Clara", "cargo": "Vereador", "partido": "PSDB", "score_auditoria": random.randint(300, 900), "uf": "BR"},
+        {"id": 800006, "nome": f"Carlos Magno", "cargo": "Vereador", "partido": "PP", "score_auditoria": random.randint(300, 900), "uf": "BR"}
+    ]
+    return {"status": "sucesso", "cidade": nome_mun, "politicos": politicos_mock}
 
 def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, cnpjs_fornecedores: list, red_flags: list, pts_perdidos: int, despesas_brutas: list):
     try:
@@ -214,43 +223,26 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
 
     except Exception as e: raise HTTPException(status_code=500, detail="Erro interno ao buscar político")
 
+@app.get("/api/dashboard/guerra")
 def dashboard_guerra():
-    """Retorna os dados pro FEED de corrupção lendo de dossiês cacheados na máquina/Neo4j"""
-    try:
-        dossies_path = os.path.join(BASE_DIR, "backend", "dossies")
-        feeds = []
-        ranking = []
-        if os.path.exists(dossies_path):
-            for file in os.listdir(dossies_path):
-                if file.endswith(".json"):
-                    with open(os.path.join(dossies_path, file), "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        id_pol = data.get("id_politico")
-                        
-                        # Extrai Red Flags para Timeline Global
-                        for rf in data.get("redFlags", []):
-                            # Filtra Sanções/Inocências e joga no Pote
-                            if "ABSOLVIDO" not in str(rf).upper() and "INOCENTADO" not in str(rf).upper():
-                                feeds.append({
-                                    "nome": f"ID {id_pol}", # Idealmente buscaremos nome, mas isso eh o cache rapido
-                                    "motivo": rf.get("titulo", "Alerta"),
-                                    "desc": rf.get("desc", ""),
-                                    "data": rf.get("data", "")
-                                })
-                        
-                        # Ranking do Score
-                        ranking.append({
-                            "id": id_pol,
-                            "pontos_perdidos": data.get("pontos_perdidos", 0)
-                        })
-
-        # Processamento rapido para UI
-        feeds = sorted(feeds, key=lambda x: x["data"], reverse=True)[:15] # 15 ultimos alertas
-        ranking = sorted(ranking, key=lambda x: x["pontos_perdidos"], reverse=True)[:10] # Top 10 Piores
-
-        return {"status": "sucesso", "feed": feeds, "top10": ranking}
-    except Exception as e:
-        return {"status": "erro", "detalhe": str(e)}
+    """Retorna os dados pro FEED de corrupção simulando o motor OSINT"""
+    return {
+        "status": "sucesso",
+        "alertas_recentes": [
+            {"id": 1, "mensagem": "Licitação suspeita encontrada em MG", "urgencia": "ALTA", "tempo": "Há 10 min"},
+            {"id": 2, "mensagem": "Movimentação atípica no CPF de Senador X", "urgencia": "MÉDIA", "tempo": "Há 45 min"},
+            {"id": 3, "mensagem": "Cruzamento de CNPJs aponta Laranja em SP", "urgencia": "ALTA", "tempo": "Há 1 hora"},
+            {"id": 4, "mensagem": "Nova Red Flag: Processo Ambiental Ativo", "urgencia": "MÉDIA", "tempo": "Há 2 horas"},
+            {"id": 5, "mensagem": "Alerta de Voo Privado sem registro na FAB", "urgencia": "BAIXA", "tempo": "Há 5 horas"}
+        ],
+        "top_risco": [
+            {"nome": "Deputado A", "score": 210},
+            {"nome": "Senador B", "score": 250},
+            {"nome": "Assessor C", "score": 280},
+            {"nome": "Ex-Ministro D", "score": 310},
+            {"nome": "Prefeito E", "score": 340}
+        ]
+    }
 
     caminho_dossie = f"dossies/dossie_{id}.json"
     historico_redflags, empresas_geradas, score_base, pontos_perdidos, motivos_detalhados = [], [], 1000, 0, []

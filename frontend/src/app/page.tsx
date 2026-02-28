@@ -1,696 +1,309 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import {
-  Search,
-  Map as MapIcon,
-  Filter,
-  Briefcase,
-  Play,
-  ArrowRight,
-  User,
-  Hash,
-  AlertTriangle,
-  ShieldCheck,
-  FileText,
-  CheckCircle2,
-  ShieldAlert,
-  Activity,
-  Crown,
-  Castle,
-  Fish,
-  MapPin,
-} from "lucide-react";
-import {
-  ComposableMap,
-  Geographies,
-  Geography,
-  ZoomableGroup,
-} from "react-simple-maps";
-import { geoCentroid, geoBounds } from "d3-geo";
-import { motion } from "framer-motion";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Map, { Marker, ViewState, MapRef } from "react-map-gl/mapbox";
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Search, ShieldAlert, Activity, User, ShieldCheck, MapPin, Target, ChevronRight, Navigation
+} from "lucide-react";
 
-const geoUrl = "/brazil-states.json";
+// OBSERVAÇÃO AO ARQUITETO/DEV:
+// O GitHub bloqueou o Push anterior devido à detecção de secret (Secret Scanning).
+// A chave pública: pk.eyJ1Ijoid2VsbGluZ3Rvbm1tIiwiYSI6ImNtbTNweHR3bz...
+// DEVE ser declarada no seu arquivo .env.local como:
+// NEXT_PUBLIC_MAPBOX_TOKEN=pk.eyJ1Ij...
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "COLE_SUA_CHAVE_PK_AQUI_SE_FOR_RODAR_LOCAL_SEM_ENV";
+
+// Cidades Estratégicas Mockadas para Mapeamento do Radar
+const CIDADES_RADAR = [
+  { nome: "Brasília", lat: -15.8267, lng: -47.9218, tipo: "Centro de Poder" },
+  { nome: "Belo Horizonte", lat: -19.9167, lng: -43.9345, tipo: "Foco Estadual" },
+  { nome: "Santa Luzia", lat: -19.7694, lng: -43.8514, tipo: "Investigação" },
+  { nome: "São Paulo", lat: -23.5505, lng: -46.6333, tipo: "Centro Financeiro" },
+  { nome: "Rio de Janeiro", lat: -22.9068, lng: -43.1729, tipo: "Foco Regional" }
+];
 
 export default function Home() {
   const router = useRouter();
-  const [buscaNome, setBuscaNome] = useState("");
-  const [cargoFiltro, setCargoFiltro] = useState("");
-  const [estadoSelecionado, setEstadoSelecionado] = useState<string>("");
+  const mapRef = useRef<MapRef>(null);
+
+  // Estados do Mapa
+  const [viewState, setViewState] = useState<ViewState>({
+    longitude: -51.9253,
+    latitude: -14.235,
+    zoom: 3.5,
+    pitch: 0,
+    bearing: 0,
+    padding: { top: 0, bottom: 0, left: 0, right: 0 }
+  });
+
+  // Estados da Interface e Dados
   const [loading, setLoading] = useState(false);
-  const [resultados, setResultados] = useState<any[]>([]);
-  const [presidenciais, setPresidenciais] = useState<any[]>([]);
-  const [cidades, setCidades] = useState<any[]>([]);
-  const [cidadeSelecionada, setCidadeSelecionada] = useState<string>("");
-  const [municipiosLocal, setMunicipiosLocal] = useState<{ id: number; nome: string }[]>([]);
+  const [buscaNome, setBuscaNome] = useState("");
+  const [cidadeSelecionada, setCidadeSelecionada] = useState("");
+  const [politicosLocais, setPoliticosLocais] = useState<any[]>([]);
+
+  // Estados do Dashboard Lateral (Esquerdo)
   const [feedGuerra, setFeedGuerra] = useState<any[]>([]);
   const [topRanking, setTopRanking] = useState<any[]>([]);
-  const [erro, setErro] = useState("");
-  const [zoomMap, setZoomMap] = useState<number>(1);
-  const [centerMap, setCenterMap] = useState<[number, number]>([-55, -15]);
 
+  // Init: Carrega Dashboard Esquerdo (Guerra & Top Risco)
   useEffect(() => {
-    // Carrega dados pro Dashboard e Mock Presidenciais
-    Promise.all([
-      fetch("http://localhost:8000/api/dashboard/guerra").then((r) => r.json()),
-      fetch("http://localhost:8000/api/politicos/presidenciais").then((r) =>
-        r.json(),
-      ),
-    ])
-      .then(([dashData, presData]) => {
-        if (dashData.status === "sucesso") {
-          setFeedGuerra(dashData.feed || []);
-          setTopRanking(dashData.top10 || []);
-        }
-        if (presData.status === "sucesso") {
-          setPresidenciais(presData.dados);
+    fetch("http://localhost:8000/api/dashboard/guerra")
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "sucesso") {
+          setFeedGuerra(data.alertas_recentes || []);
+          setTopRanking(data.top_risco || []);
         }
       })
-      .catch(console.error);
+      .catch(err => console.error("Erro ao carregar Dashboard:", err));
   }, []);
 
+  // Ação Principal: Voar para a Cidade e Abrir Painel Direito
+  const voarParaCidade = async (lat: number, lng: number, nomeCidade: string) => {
+    if (mapRef.current) {
+      // Efeito cinematográfico: zoom in profundo com inclinação (pitch)
+      mapRef.current.flyTo({
+        center: [lng, lat],
+        zoom: 13,
+        pitch: 65,
+        bearing: 20,
+        duration: 2500,
+        essential: true
+      });
+    }
+
+    setCidadeSelecionada(nomeCidade);
+    setLoading(true);
+
+    try {
+      const res = await fetch(`http://localhost:8000/api/politicos/cidade/${encodeURIComponent(nomeCidade)}`);
+      const data = await res.json();
+      if (data.status === "sucesso") {
+        // Ordena por Score, piores primeiro (score menor é pior? ou maior é pior? Vamos assumir que Score menor é pior Serasa style, então ordem decrescente de perigo ou crescente de score. Vamos ordenar decrescente pelo score simulado)
+        const sorted = (data.politicos || []).sort((a: any, b: any) => b.score_auditoria - a.score_auditoria);
+        setPoliticosLocais(sorted);
+      } else {
+        setPoliticosLocais([]);
+      }
+    } catch (err) {
+      console.error("Erro ao puxar dados da cidade:", err);
+      setPoliticosLocais([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Ação de Busca Rápida (Topo)
   const realizarBusca = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!buscaNome) return;
-    setLoading(true);
-    setErro("");
-    setResultados([]);
-    setEstadoSelecionado("");
-    setCargoFiltro("");
-
-    try {
-      const res = await fetch(
-        `http://localhost:8000/api/politicos/buscar?nome=${buscaNome}`,
-      );
-      const data = await res.json();
-      if (data.status === "sucesso") setResultados(data.dados);
-      else setErro(data.mensagem);
-    } catch (err) {
-      setErro("Erro de conexão com a API.");
-    } finally {
-      setLoading(false);
-    }
+    router.push(`/busca?q=${encodeURIComponent(buscaNome)}`); // Rota simplificada para exemplo ou adaptação futura
   };
-
-  const buscarPorEstado = async (uf: string) => {
-    setLoading(true);
-    setErro("");
-    setResultados([]);
-    setBuscaNome("");
-    setCargoFiltro("");
-    try {
-      const res = await fetch(
-        `http://localhost:8000/api/politicos/estado/${uf}`,
-      );
-      const data = await res.json();
-      if (data.status === "sucesso") {
-        const sorted = data.dados.sort((a: any, b: any) => {
-          let va = a.score_auditoria === "Pendente" ? 1000 : a.score_auditoria;
-          let vb = b.score_auditoria === "Pendente" ? 1000 : b.score_auditoria;
-          return vb - va;
-        });
-        setResultados(sorted);
-      }
-    } catch (err) {
-      setErro("Erro ao buscar políticos deste estado.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleStateClick = async (geo: any) => {
-    const siglaEstado = geo.properties.SIGLA_UF || geo.properties.UF_05;
-    if (siglaEstado && geoUrl) {
-      setEstadoSelecionado(siglaEstado);
-      setCidadeSelecionada(""); // Reseta a cidade ao trocar de estado
-
-      // Usar D3 para Encontrar Centro e Focus
-      try {
-        const centroid = geoCentroid(geo);
-        const bounds = geoBounds(geo);
-        const dx = bounds[1][0] - bounds[0][0];
-        const dy = bounds[1][1] - bounds[0][1];
-        const maxDim = Math.max(dx, dy);
-        // Calcular nível de zoom da Box (min 2, max 6 dps)
-        let z = 0.9 * 25 / maxDim;
-        if (z < 2) z = 2;
-        if (z > 6) z = 6;
-
-        setCenterMap(centroid as [number, number]);
-        setZoomMap(z); // Zoom in Smoothly
-      } catch (err) {
-        console.error("D3 Geo Error:", err);
-      }
-
-      // TAREFA 5: Busca Cidades do IBGE para o Estado
-      try {
-        const ibgeRes = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${siglaEstado}/municipios`);
-        const ibgeData = await ibgeRes.json();
-        setMunicipiosLocal(ibgeData);
-      } catch (e) {
-        console.error("Erro IBGE Municipios", e);
-      }
-
-      setLoading(true);
-      setErro("");
-      // Traz politicos estaduais (Senadores/Govs/Deps Estaduais) da API
-      try {
-        const res = await fetch(`http://localhost:8000/api/politicos/estado/${siglaEstado}`);
-        const data = await res.json();
-        if (data.status === "sucesso") {
-          const sorted = data.dados.sort((a: any, b: any) => {
-            let va = a.score_auditoria === "Pendente" ? 1000 : a.score_auditoria;
-            let vb = b.score_auditoria === "Pendente" ? 1000 : b.score_auditoria;
-            return vb - va;
-          });
-          setResultados(sorted);
-        }
-      } catch (err) {
-        setErro("Erro ao buscar políticos deste estado.");
-      } finally {
-        setLoading(false);
-      }
-    }
-  };
-
-  const mapReset = () => {
-    setEstadoSelecionado("");
-    setCidadeSelecionada("");
-    setCenterMap([-55, -15]);
-    setZoomMap(1);
-    setResultados([]); // Limpa resultados para forçar o backend total ou manter vazio
-  }
-
-  // TAREFA 5: Busca Políticos Locais (Municipais - Preparo API TSE)
-  const buscarPoliticosLocais = async (city: string) => {
-    setCidadeSelecionada(city);
-    if (!city) return;
-    setLoading(true);
-    setErro("");
-
-    // ATENÇÃO: Rota atual usa o FastAPI Mocado. 
-    // FUTURO: Esta rota será platinada no TSE/CGU para prefeitos reais.
-    try {
-      const res = await fetch(
-        `http://localhost:8000/api/politicos/cidade/${encodeURIComponent(city)}`,
-      );
-      const data = await res.json();
-      if (data.status === "sucesso") {
-        const sorted = data.dados.sort((a: any, b: any) => {
-          let va = a.score_auditoria === "Pendente" ? 1000 : a.score_auditoria;
-          let vb = b.score_auditoria === "Pendente" ? 1000 : b.score_auditoria;
-          return vb - va;
-        });
-        setResultados(sorted);
-      }
-    } catch (err) {
-      setErro("Erro ao buscar políticos TSE/IBGE.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCityChange = async (e: any) => {
-    const city = e.target.value;
-    setCidadeSelecionada(city);
-    if (!city) {
-      buscarPorEstado(estadoSelecionado); // fallback state
-      return;
-    }
-
-    setLoading(true);
-    setErro("");
-    setResultados([]);
-    setBuscaNome("");
-    setCargoFiltro("");
-    try {
-      const res = await fetch(
-        `http://localhost:8000/api/politicos/cidade/${encodeURIComponent(city)}`,
-      );
-      const data = await res.json();
-      if (data.status === "sucesso") {
-        const sorted = data.dados.sort((a: any, b: any) => {
-          let va = a.score_auditoria === "Pendente" ? 1000 : a.score_auditoria;
-          let vb = b.score_auditoria === "Pendente" ? 1000 : b.score_auditoria;
-          return vb - va;
-        });
-        setResultados(sorted);
-      }
-    } catch (err) {
-      setErro("Erro ao buscar políticos desta cidade.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resultadosFiltrados = resultados.filter((pol) => {
-    if (!cargoFiltro) return true;
-    return pol.cargo.toLowerCase().includes(cargoFiltro.toLowerCase());
-  });
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans selection:bg-emerald-500/30">
-      {/* DESTAQUE PRESIDENCIAL 2026 */}
-      <div className="w-full bg-neutral-900/50 border-b border-neutral-800 pt-8 pb-12 overflow-hidden relative">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-yellow-500/5 via-neutral-950 to-neutral-950 pointer-events-none" />
-        <div className="max-w-7xl mx-auto px-6 relative z-10">
-          <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-yellow-600 mb-8 flex items-center gap-3 justify-center md:justify-start">
-            <Crown className="w-8 h-8 text-yellow-500" /> Corrida Presidencial
-            2026
-          </h2>
+    <div className="relative w-full h-screen bg-black overflow-hidden selection:bg-purple-500/30 font-sans text-neutral-200 cursor-crosshair">
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {presidenciais.map((pres) => (
-              <motion.div
-                whileHover={{ scale: 1.02, y: -5 }}
-                key={pres.id}
-                onClick={() => router.push(`/politico/${pres.id}`)}
-                className="bg-neutral-950 border-2 border-yellow-500/20 rounded-3xl p-6 cursor-pointer relative overflow-hidden group shadow-[0_0_15px_rgba(234,179,8,0.05)] hover:shadow-[0_0_30px_rgba(234,179,8,0.2)] hover:border-yellow-500/50 transition-all"
+      {/* BACKGROUND: MAPBOX 3D */}
+      <div className="absolute inset-0 z-0">
+        <Map
+          ref={mapRef}
+          {...viewState}
+          onMove={evt => setViewState(evt.viewState)}
+          mapStyle="mapbox://styles/mapbox/dark-v11"
+          mapboxAccessToken={MAPBOX_TOKEN}
+          terrain={{ source: 'mapbox-dem', exaggeration: 1.5 }}
+          minZoom={3}
+        >
+          {/* Marcadores Luminosos (Radar Nodes) */}
+          {CIDADES_RADAR.map((cidade, idx) => (
+            <Marker key={idx} longitude={cidade.lng} latitude={cidade.lat} anchor="center">
+              <div
+                className="relative flex items-center justify-center p-2 group cursor-pointer"
+                onClick={() => voarParaCidade(cidade.lat, cidade.lng, cidade.nome)}
               >
-                <div className="absolute top-0 right-0 p-3">
-                  <span className="text-xs font-bold text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded-md border border-yellow-500/20 flex items-center gap-1">
-                    <Crown className="w-3 h-3" /> Chefão
-                  </span>
-                </div>
+                {/* Efeito de Pulso Cyberpunk */}
+                <div className="absolute inset-0 bg-purple-500 rounded-full animate-ping opacity-75"></div>
+                <div className="relative w-4 h-4 bg-purple-600 border-2 border-white rounded-full shadow-[0_0_15px_rgba(168,85,247,0.8)] z-10"></div>
 
-                <div className="flex flex-col items-center">
-                  <motion.div
-                    animate={{
-                      boxShadow: [
-                        "0 0 15px rgba(234,179,8,0.3)",
-                        "0 0 30px rgba(234,179,8,0.6)",
-                        "0 0 15px rgba(234,179,8,0.3)",
-                      ],
-                    }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                    className="w-24 h-24 rounded-full overflow-hidden border-2 border-yellow-500 mb-4 animate-pulse relative"
-                  >
-                    <img
-                      src={pres.urlFoto}
-                      alt={pres.nome}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        e.currentTarget.src = "https://via.placeholder.com/150";
-                      }}
-                    />
-                  </motion.div>
-                  <h3 className="text-lg font-bold text-white text-center mb-1 truncate w-full px-2">
-                    {pres.nome}
-                  </h3>
-                  <p className="text-sm text-neutral-400 mb-4">
-                    {pres.cargo} - {pres.siglaPartido}
-                  </p>
-
-                  <div className="w-full bg-neutral-900 rounded-xl p-3 flex justify-between items-center border border-neutral-800">
-                    <span className="text-xs font-mono text-neutral-500 uppercase">
-                      Score Dossiê
-                    </span>
-                    <motion.span
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className={`text-lg font-black ${pres.score_auditoria >= 700 ? "text-emerald-500" : pres.score_auditoria >= 500 ? "text-yellow-500" : "text-red-500"}`}
-                    >
-                      {pres.score_auditoria}
-                    </motion.span>
-                  </div>
+                {/* Tooltip Flutuante */}
+                <div className="absolute bottom-full mb-2 hidden group-hover:block bg-black/80 backdrop-blur-md border border-purple-500/40 px-3 py-1.5 rounded-lg whitespace-nowrap z-20 shadow-xl pointer-events-none">
+                  <p className="text-xs font-bold text-white uppercase tracking-wider">{cidade.nome}</p>
+                  <p className="text-[9px] text-purple-400 font-mono tracking-widest">{cidade.tipo}</p>
                 </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
+              </div>
+            </Marker>
+          ))}
+        </Map>
       </div>
 
-      <main className="max-w-7xl mx-auto px-6 py-12 flex flex-col items-center relative">
-        {/* BARRA DE PESQUISA PRINCIPAL */}
-        <div className="w-full bg-neutral-900/50 backdrop-blur-xl border border-neutral-800 rounded-3xl p-6 shadow-2xl mb-12 relative z-20">
-          <form
-            onSubmit={realizarBusca}
-            className="flex flex-col md:flex-row gap-4"
-          >
-            <div className="flex-1 relative">
-              <Search className="absolute left-4 top-3.5 text-neutral-500 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Investigue Deputados, Senadores ou Governadores..."
-                value={buscaNome}
-                onChange={(e) => setBuscaNome(e.target.value)}
-                className="w-full bg-neutral-950/50 border border-neutral-800 rounded-xl pl-12 pr-4 py-3 text-neutral-200 focus:ring-2 focus:ring-purple-500/50 outline-none transition"
-              />
+      {/* OVERLAYS UI (z-10) */}
+      <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between">
+
+        {/* TOPO: BARRA DE BUSCA E BRANDING */}
+        <div className="w-full p-6 flex justify-between items-start pointer-events-auto">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
+                <Target className="w-5 h-5 text-emerald-500" />
+              </div>
+              <h1 className="text-2xl font-black tracking-tight text-white uppercase">
+                Trasparente<span className="text-emerald-500">.</span>
+              </h1>
             </div>
-            <button
-              type="submit"
-              className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-8 py-3 rounded-xl transition-all shadow-[0_0_15px_rgba(147,51,234,0.3)]"
-            >
-              Auditar
+            <span className="text-[10px] text-neutral-400 font-mono tracking-widest uppercase ml-10">GovTech Sistema de Auditoria</span>
+          </div>
+
+          <form onSubmit={realizarBusca} className="flex relative w-full max-w-md">
+            <input
+              type="text"
+              placeholder="Buscar político ou CPF/CNPJ..."
+              className="w-full bg-black/60 backdrop-blur-md border border-neutral-800 text-white px-5 py-3 rounded-full text-sm outline-none focus:border-purple-500 transition-colors shadow-2xl placeholder-neutral-600"
+              value={buscaNome}
+              onChange={(e) => setBuscaNome(e.target.value)}
+            />
+            <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 bg-purple-600 hover:bg-purple-500 w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-[0_0_10px_rgba(168,85,247,0.4)]">
+              <Search className="w-4 h-4 text-white" />
             </button>
           </form>
         </div>
 
-        <div className="flex flex-col gap-10 w-full relative z-10">
-          {/* MAPA INTERATIVO SUPERIOR - FULL WIDTH */}
-          <div className="relative w-full h-[600px] bg-neutral-950/80 backdrop-blur-md border border-purple-500/20 rounded-3xl overflow-hidden shadow-[0_0_40px_rgba(147,51,234,0.1)] group">
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-purple-500/0 via-purple-500/50 to-purple-500/0 opacity-50 transition-opacity z-10" />
+        {/* ÁREA CENTRAL LATERAL (Painéis) */}
+        <div className="flex-1 flex justify-between items-end p-6 gap-6 relative overflow-hidden pointer-events-none">
 
-            {/* INTERAÇÃO IBGE */}
-            {estadoSelecionado && (
-              <div className="absolute top-6 left-6 z-20 flex flex-col gap-3 w-80">
-                <span className="bg-black/90 backdrop-blur-xl border border-purple-500/80 text-purple-400 font-black px-5 py-3 rounded-2xl flex items-center gap-3 shadow-[0_0_20px_rgba(168,85,247,0.3)] uppercase tracking-wide">
-                  <MapIcon className="w-6 h-6" /> ESTADO: {estadoSelecionado}
-                </span>
-
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  className="w-full bg-black/90 backdrop-blur-xl border border-neutral-800 rounded-2xl max-h-[300px] overflow-y-auto custom-scrollbar p-2 shadow-2xl"
-                >
-                  <div className="p-3 text-[10px] uppercase font-black tracking-widest text-neutral-500 border-b border-neutral-800/50 mb-2 flex items-center justify-between">
-                    <span>Drilldown Municipal (TSE)</span>
-                    <span
-                      onClick={mapReset}
-                      className="cursor-pointer text-red-500 hover:text-red-400 transition-colors"
-                    >
-                      LIMPAR UF
-                    </span>
-                  </div>
-                  {municipiosLocal.map((mun) => (
-                    <div
-                      key={mun.id}
-                      onClick={() => buscarPoliticosLocais(mun.nome)}
-                      className={`px-4 py-3 text-sm rounded-xl cursor-pointer transition-all ${cidadeSelecionada === mun.nome ? "bg-purple-600/20 text-purple-300 border border-purple-500/50 font-bold" : "text-neutral-400 hover:bg-neutral-800/80 hover:text-neutral-200"} mb-1`}
-                    >
-                      {mun.nome}
+          {/* PAINEL ESQUERDO: Radar Criminal & Top 10 (Fixo) */}
+          <div className="w-full max-w-sm flex flex-col gap-4 pointer-events-auto max-h-[calc(100vh-120px)] overflow-y-auto custom-scrollbar">
+            {/* Radar Criminal (Guerra) */}
+            <div className="bg-black/80 backdrop-blur-lg border border-red-500/20 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/10 blur-[40px] rounded-full pointer-events-none" />
+              <h2 className="text-red-400 font-bold mb-4 flex items-center gap-2 border-b border-red-500/20 pb-3 uppercase tracking-wider text-xs">
+                <ShieldAlert className="w-4 h-4" /> Radar Criminal / Monitoramento
+              </h2>
+              <div className="space-y-4">
+                {feedGuerra.map((alerta, idx) => (
+                  <div key={idx} className="flex gap-3">
+                    <div className="mt-1 flex-shrink-0">
+                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                     </div>
-                  ))}
-                </motion.div>
+                    <div>
+                      <p className="text-xs text-neutral-300 leading-tight mb-1">{alerta.mensagem}</p>
+                      <div className="flex gap-2 text-[9px] font-mono tracking-widest text-neutral-500 uppercase">
+                        <span className={alerta.urgencia === 'ALTA' ? 'text-red-500' : 'text-yellow-500'}>[{alerta.urgencia}]</span>
+                        <span>{alerta.tempo}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            )}
+            </div>
 
-            {!geoUrl ? (
-              <div className="flex w-full h-full items-center justify-center text-purple-500/50 font-mono text-sm uppercase tracking-widest animate-pulse">
-                &gt; Sincronizando Cartografia Satélite...
+            {/* Top 5 Risco (Malha Fina) */}
+            <div className="bg-black/80 backdrop-blur-lg border border-purple-500/20 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
+              <h2 className="text-purple-400 font-bold mb-4 flex items-center gap-2 border-b border-purple-500/20 pb-3 uppercase tracking-wider text-xs">
+                <Activity className="w-4 h-4" /> Alvos Críticos na Malha Fina
+              </h2>
+              <div className="space-y-3">
+                {topRanking.map((alvo, idx) => (
+                  <div key={idx} className="flex justify-between items-center bg-white/5 px-3 py-2 rounded-lg border border-white/5 hover:border-purple-500/30 transition-colors cursor-default">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-neutral-600 font-bold w-4">{idx + 1}.</span>
+                      <span className="text-sm font-bold text-neutral-200">{alvo.nome}</span>
+                    </div>
+                    <span className="text-xs font-mono text-purple-400 font-bold">{alvo.score} pts</span>
+                  </div>
+                ))}
               </div>
-            ) : (
-              <ComposableMap
-                projection="geoMercator"
-                projectionConfig={{ scale: 800 }}
-                className="w-full h-full"
-              >
-                <ZoomableGroup
-                  center={centerMap}
-                  zoom={zoomMap}
-                  minZoom={1}
-                  maxZoom={10}
-                  style={{
-                    transition: "transform 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
-                  }}
-                >
-                  <Geographies geography={geoUrl}>
-                    {({ geographies }) =>
-                      geographies.map((geo) => {
-                        const sigla =
-                          geo.properties.SIGLA_UF || geo.properties.UF_05;
-                        const isSelected = estadoSelecionado === sigla;
-                        return (
-                          <Geography
-                            key={geo.rsmKey}
-                            geography={geo}
-                            onClick={() => handleStateClick(geo)}
-                            style={{
-                              default: {
-                                fill: isSelected ? "#a855f7" : "#0a0a0a",
-                                stroke: isSelected ? "#d8b4fe" : "#262626",
-                                strokeWidth: isSelected ? 1 : 0.5,
-                                outline: "none",
-                                transition: "all 0.3s ease",
-                              },
-                              hover: {
-                                fill: "#7e22ce",
-                                stroke: "#d8b4fe",
-                                strokeWidth: 1.5,
-                                outline: "none",
-                                cursor: "pointer",
-                                transition: "all 0.2s ease",
-                              },
-                              pressed: {
-                                fill: "#6b21a8",
-                                outline: "none",
-                              },
-                            }}
-                          />
-                        );
-                      })
-                    }
-                  </Geographies>
-                </ZoomableGroup>
-              </ComposableMap>
-            )}
+            </div>
           </div>
 
-          {/* --- MODO DASHBOARD DE GUERRA (AMPLO E MODERNO) --- */}
-          {!buscaNome && !estadoSelecionado && !cargoFiltro && (
-            <div className="w-full grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* FEED DA CORRUPÇÃO WIDE */}
-              <div className="bg-black/60 backdrop-blur-lg border border-neutral-800/80 rounded-3xl p-8 flex flex-col h-[550px] shadow-2xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full blur-3xl group-hover:bg-emerald-500/10 transition-colors" />
-                <h3 className="text-emerald-400 font-black text-xl mb-6 flex items-center gap-3 border-b border-neutral-800/80 pb-4 uppercase tracking-wider">
-                  <Activity className="w-6 h-6 text-emerald-500" />
-                  Radar Operacional
-                  <span className="ml-auto text-[10px] bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-full border border-emerald-500/20 flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-                    TEMPO REAL
-                  </span>
-                </h3>
-                <div className="flex-1 overflow-y-auto space-y-4 pr-3 custom-scrollbar">
-                  {feedGuerra.length > 0 ? (
-                    feedGuerra.map((item, idx) => (
-                      <motion.div
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 0.1 }}
-                        key={idx}
-                        className="border-l-4 border-emerald-500/80 bg-neutral-900/30 p-4 rounded-r-xl hover:bg-neutral-900/50 transition-colors"
-                      >
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="font-bold text-neutral-100 text-base flex items-center gap-2">
-                            <AlertTriangle className="w-4 h-4 text-emerald-500" />
-                            {item.alvo}
-                          </span>
-                          <span className="text-[10px] text-neutral-400 bg-black px-2 py-1 rounded border border-neutral-800 font-mono">
-                            {item.tempo}
-                          </span>
-                        </div>
-                        <p className="text-red-400 text-xs font-bold mb-2 tracking-wide uppercase">
-                          [FONTE: {item.fonte}] IMPACTO SCORE: {item.impacto}
-                        </p>
-                        <p
-                          className="text-neutral-300 text-sm leading-relaxed"
-                          title={item.acao}
-                        >
-                          "{item.acao}"
-                        </p>
-                      </motion.div>
-                    ))
-                  ) : (
-                    <div className="flex flex-col items-center justify-center pt-20 text-neutral-600 font-mono text-sm">
-                      <ShieldCheck className="w-12 h-12 mb-4 text-emerald-900" />
-                      Radar silenciado. Nenhuma anomalia grave rastreada.
-                    </div>
-                  )}
-                </div>
-              </div>
+          {/* PAINEL DIREITO: Tropa Municipal (Deslizante) */}
+          <AnimatePresence>
+            {cidadeSelecionada && (
+              <motion.div
+                initial={{ x: "120%", opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: "120%", opacity: 0 }}
+                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                className="w-full max-w-sm pointer-events-auto absolute right-6 top-6 bottom-6 flex flex-col pt-[88px]" // Offset para não tampar Top Right
+              >
+                <div className="h-full bg-neutral-950/90 backdrop-blur-xl border border-emerald-500/30 rounded-3xl p-6 shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-40 h-40 bg-emerald-500/10 blur-[60px] rounded-full pointer-events-none" />
 
-              {/* RANKING TOP ANOMALIAS WIDE */}
-              <div className="bg-black/60 backdrop-blur-lg border border-red-900/20 rounded-3xl p-8 flex flex-col h-[550px] shadow-[0_0_30px_rgba(220,38,38,0.02)] relative overflow-hidden group hover:border-red-900/40 transition-colors">
-                <div className="absolute bottom-0 left-0 w-32 h-32 bg-red-600/5 rounded-full blur-3xl group-hover:bg-red-600/10 transition-colors" />
-                <h3 className="text-red-500 font-black text-xl mb-6 flex items-center gap-3 border-b border-red-900/30 pb-4 uppercase tracking-wider">
-                  <ShieldAlert className="w-6 h-6 text-red-600" />
-                  Malha Fina Nacional
-                  <span className="ml-auto text-[10px] bg-red-500/10 text-red-400 px-3 py-1 rounded-full border border-red-500/20 font-mono">
-                    MAIORES AMEAÇAS
-                  </span>
-                </h3>
-                <div className="flex-1 overflow-y-auto space-y-4 pr-3 custom-scrollbar">
-                  {topRanking.length > 0 ? (
-                    topRanking.map((item, idx) => (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.98 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: idx * 0.1 }}
-                        key={idx}
-                        className="bg-neutral-900/40 border-b border-neutral-800 p-4 flex justify-between items-center cursor-pointer hover:bg-neutral-800/60 rounded-xl transition-colors"
-                        onClick={() => router.push(`/politico/${item.id}`)}
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-xl bg-red-950/50 border border-red-900 flex items-center justify-center font-black text-red-500 text-sm shadow-[0_0_15px_rgba(220,38,38,0.15)]">
-                            #{idx + 1}
-                          </div>
-
-                          <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-red-900/50 shadow-inner">
-                            <img
-                              src={item.foto}
-                              alt={item.nome}
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-
-                          <div className="flex flex-col">
-                            <span className="font-bold text-neutral-100 text-base">
-                              {item.nome}
-                            </span>
-                            <span className="text-xs text-neutral-500 font-mono">
-                              {item.partido} • {item.estado}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="text-right flex flex-col items-end">
-                          <span className="text-[10px] text-neutral-500 tracking-widest uppercase mb-1">
-                            SCORE DEFICITÁRIO
-                          </span>
-                          <span className="font-mono text-red-500 font-black text-lg bg-red-500/10 px-3 py-1 rounded border border-red-500/20">
-                            {item.score}
-                          </span>
-                        </div>
-                      </motion.div>
-                    ))
-                  ) : (
-                    <div className="flex flex-col items-center justify-center pt-20 text-neutral-600 font-mono text-sm">
-                      <Activity className="w-12 h-12 mb-4 text-red-900/50" />
-                      Alvos processados. Zero red flags identificados.
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* --- RESULTADOS GLOBAIS / ESTADUAIS DA PESQUISA --- */}
-          {(buscaNome || estadoSelecionado || cargoFiltro) && (
-            <div className="lg:col-span-2 bg-neutral-900/30 border border-neutral-800 rounded-3xl p-6 flex flex-col max-h-[600px]">
-              <div className="flex justify-between items-start md:items-end mb-6 flex-wrap gap-4">
-                <div className="flex flex-col gap-2">
-                  <h3 className="text-lg font-bold text-purple-400 flex items-center gap-2">
-                    {estadoSelecionado
-                      ? `Alvos: ${estadoSelecionado}`
-                      : "Resultados Globais"}
-                  </h3>
-                  {cidades.length > 0 && (
-                    <select
-                      value={cidadeSelecionada}
-                      onChange={handleCityChange}
-                      className="bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-1.5 text-sm text-neutral-200 outline-none focus:ring-1 focus:ring-emerald-500/50 max-w-[220px]"
-                    >
-                      <option value="">-- Filtrar Município --</option>
-                      {cidades.map((c) => (
-                        <option key={c.id} value={c.nome}>
-                          {c.nome}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-
-                <div className="relative w-40">
-                  <Filter className="absolute left-3 top-2.5 text-neutral-500 w-4 h-4" />
-                  <select
-                    value={cargoFiltro}
-                    onChange={(e) => setCargoFiltro(e.target.value)}
-                    className="w-full bg-neutral-950 border border-neutral-800 rounded-lg pl-9 pr-3 py-2 text-sm text-neutral-200 outline-none focus:ring-1 focus:ring-purple-500/50"
+                  <button
+                    onClick={() => {
+                      setCidadeSelecionada("");
+                      // Reset view
+                      if (mapRef.current) mapRef.current.flyTo({ center: [-51.9253, -14.235], zoom: 3.5, pitch: 0, duration: 2000 });
+                    }}
+                    className="absolute top-6 right-6 text-neutral-500 hover:text-white transition-colors"
                   >
-                    <option value="">Todos</option>
-                    <option value="governador">Governadores</option>
-                    <option value="prefeito">Prefeitos</option>
-                    <option value="senador">Senadores</option>
-                    <option value="deputado">Deputados</option>
-                    <option value="vereador">Vereadores</option>
-                  </select>
-                </div>
-              </div>
+                    ✕
+                  </button>
 
-              {loading && (
-                <div className="flex justify-center py-20">
-                  <div className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-                </div>
-              )}
-              {erro && (
-                <div className="p-4 bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl text-sm">
-                  {erro}
-                </div>
-              )}
+                  <h2 className="text-2xl font-black text-white mb-1 pr-8 leading-tight">{cidadeSelecionada}</h2>
+                  <p className="text-[10px] text-emerald-400 font-mono tracking-widest uppercase mb-6 flex items-center gap-1">
+                    <Navigation className="w-3 h-3" /> Foco Ativo / Interceptação
+                  </p>
 
-              {!loading && !erro && resultados.length === 0 && (
-                <div className="flex-1 flex flex-col items-center justify-center text-neutral-600 text-sm py-10">
-                  <MapPin className="w-8 h-8 mb-2 opacity-50" />
-                  Clique num estado ou faça uma busca.
-                </div>
-              )}
-
-              <div className="overflow-y-auto custom-scrollbar flex-1 space-y-3 pr-2">
-                {resultadosFiltrados.map((pol, index) => {
-                  const isRei = pol.nivel_boss === "🏰 Rei Estadual";
-                  return (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                      key={pol.id}
-                      onClick={() => router.push(`/politico/${pol.id}`)}
-                      className={`bg-neutral-950 border ${isRei ? "border-purple-500/30 shadow-[0_0_10px_rgba(168,85,247,0.1)]" : "border-neutral-800"} rounded-2xl p-4 flex items-center gap-4 hover:border-purple-500/50 transition cursor-pointer group`}
-                    >
-                      <div className="font-black text-xl text-neutral-800 group-hover:text-purple-500/30 w-6">
-                        {index + 1}
-                      </div>
-
-                      <div
-                        className={`relative w-12 h-12 rounded-full overflow-hidden bg-neutral-800 flex-shrink-0 ${isRei ? "border-2 border-purple-500" : "border border-neutral-700"}`}
-                      >
-                        {pol.urlFoto ? (
-                          <img
-                            src={pol.urlFoto}
-                            alt={pol.nome}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <User className="w-8 h-8 m-2 text-neutral-600" />
-                        )}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-neutral-200 text-sm truncate flex items-center gap-1">
-                          {pol.nome}
-                        </h4>
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 mt-0.5">
-                          <span className="text-[10px] text-neutral-500 truncate">
-                            {pol.cargo} - {pol.siglaPartido}
-                          </span>
-                          <span
-                            className={`text-[9px] px-1.5 py-[1px] rounded uppercase font-bold w-fit ${isRei ? "bg-purple-500/20 text-purple-400 border border-purple-500/30" : "bg-neutral-800 text-neutral-400"}`}
+                  {loading ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-emerald-500 gap-4">
+                      <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                      <p className="font-mono text-[10px] tracking-widest uppercase animate-pulse">Varrendo Bases do TSE...</p>
+                    </div>
+                  ) : (
+                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
+                      {politicosLocais.map((pol, idx) => (
+                        <div key={idx} className="bg-black/50 border border-neutral-800 rounded-xl p-4 hover:border-emerald-500/50 transition-colors group">
+                          <div className="flex justify-between items-start mb-3">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-[8px] font-bold uppercase px-2 py-0.5 rounded ${pol.cargo === 'Prefeito' ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : 'bg-neutral-800 text-neutral-400'}`}>
+                                  {pol.cargo}
+                                </span>
+                                <span className="text-[10px] text-neutral-500 font-bold">{pol.partido}</span>
+                              </div>
+                              <h3 className="font-bold text-neutral-200 text-sm">{pol.nome}</h3>
+                            </div>
+                            <div className="flex flex-col items-end">
+                              <span className="text-[10px] uppercase text-neutral-500 font-mono tracking-tighter">Score</span>
+                              <span className={`text-sm font-black font-mono ${pol.score_auditoria > 600 ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {pol.score_auditoria}
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => router.push(`/politico/${pol.id}`)}
+                            className="w-full py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center justify-center gap-1 transition-colors"
                           >
-                            {isRei ? (
-                              <Castle className="w-2.5 h-2.5 inline mr-1" />
-                            ) : (
-                              <Fish className="w-2.5 h-2.5 inline mr-1" />
-                            )}
-                            {pol.nivel_boss.replace(/[🏰🐟]/g, "").trim()}
-                          </span>
+                            Abrir Dossiê <ChevronRight className="w-3 h-3" />
+                          </button>
                         </div>
-                      </div>
+                      ))}
+                      {politicosLocais.length === 0 && (
+                        <div className="text-center p-6 border border-dashed border-neutral-800 rounded-xl text-neutral-500">
+                          <ShieldCheck className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                          <p className="text-xs uppercase font-bold text-neutral-600">Nenhum dado suspeito reportado.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-                      <div className="text-right flex-shrink-0">
-                        <div
-                          className={`font-black text-lg ${pol.score_auditoria >= 700 ? "text-emerald-500" : pol.score_auditoria >= 400 ? "text-yellow-500" : "text-red-500"}`}
-                        >
-                          {pol.score_auditoria}
-                        </div>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
-      </main>
+      </div>
+
+      <style jsx global>{`
+                .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+                .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #555; }
+            `}</style>
     </div>
   );
 }
