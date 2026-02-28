@@ -298,14 +298,21 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         with DDGS() as ddgs:
             noticias_brutas = list(ddgs.news(keywords=nome_completo, region="br-pt", max_results=5))
         if noticias_brutas:
+            prog = ["carta", "247", "fórum", "dcm", "intercept", "pública", "pragmatismo"]
+            cons = ["jovem pan", "oeste", "gazeta", "pleno", "antagonista", "terra brasil"]
+            inst = ["g1", "uol", "folha", "estadão", "cnn", "veja", "metrópoles", "poder360", "bbc", "globo"]
+
             for n in noticias_brutas:
                 fonte_raw = n.get("source", "Outros")
+                fonte_lower = fonte_raw.lower()
                 linha_calc = "Institucional" # Fallback rigoroso com o Frontend
                 
-                for k, v in MAPA_LINHA_EDITORIAL.items():
-                    if k.lower() in fonte_raw.lower():
-                        linha_calc = v
-                        break
+                if any(k in fonte_lower for k in prog):
+                    linha_calc = "Progressista"
+                elif any(k in fonte_lower for k in cons):
+                    linha_calc = "Conservadora"
+                elif any(k in fonte_lower for k in inst):
+                    linha_calc = "Institucional"
                         
                 noticias_limpas.append({
                     "titulo": n.get("title", "Sem Título"),

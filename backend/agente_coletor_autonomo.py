@@ -21,25 +21,12 @@ HEADERS_CGU = {
     "Accept": "application/json"
 }
 
-# 1. LISTA NEGRA: Nomes famosos de processos severos (Dedução imediata de 500pts)
-LISTA_NEGRA = [
-    "aécio neves", 
-    "eduardo cunha", 
-    "geddel", 
-    "sergio cabral", 
-    "fernando collor", 
-    "bolsonaro", 
-    "lula",
-    "arthur lira"
-]
-
 async def consultar_brasil_api_cnpj(cnpj: str) -> dict:
     """Consulta a base espelho da Receita Federal via BrasilAPI"""
     cnpj_limpo = "".join(filter(str.isdigit, cnpj))
     url = f"https://brasilapi.com.br/api/cnpj/v1/{cnpj_limpo}"
     print(f"🏢 [RECEITA FEDERAL] Consultando CNPJ: {cnpj_limpo}...")
     try:
-        # Usando to_thread para não bloquear o event loop do FastAPI
         res = await asyncio.to_thread(requests.get, url, timeout=10)
         if res.status_code == 200:
             return res.json()
@@ -95,10 +82,8 @@ async def consultar_cgu_sancoes(cpf_ou_cnpj: str) -> list:
 async def consultar_ibama_multas(nome_ou_cnpj: str) -> list:
     """
     Consulta a API CKAN de Dados Abertos do IBAMA para Autuações Ambientais.
-    Endpoint real do CKAN do Governo: dadosabertos.ibama.gov.br
     """
     url = "https://dadosabertos.ibama.gov.br/api/3/action/datastore_search"
-    # ID do dataset de Autuações Ambientais do IBAMA
     resource_id = "1138dd20-22b3-402d-88bc-b2f56110f63e"
     print(f"🌳 [IBAMA] Verificando crimes ambientais para: {nome_ou_cnpj}...")
     try:
@@ -112,7 +97,7 @@ async def consultar_ibama_multas(nome_ou_cnpj: str) -> list:
         return []
 
 def buscar_cpf_e_bens_tse_sync(nome_politico: str) -> list:
-    print(f"🕵️‍♂️ [TSE] Buscando CNPJs em Declarações via OSINT (DuckDuckGo) para: {nome_politico}")
+    print(f"🕵️‍♂️ [TSE] Buscando CNPJs em Declarações via OSINT para: {nome_politico}")
     query = f'site:divulgacandcontas.tse.jus.br "{nome_politico}" bens declarados'
     cnpjs_encontrados = set()
     try:
@@ -128,41 +113,38 @@ def buscar_cpf_e_bens_tse_sync(nome_politico: str) -> list:
     return list(cnpjs_encontrados)
 
 def pesquisar_historico_criminal_sync(nome_politico: str):
-    print(f"🌐 [OSINT STF/PF] Iniciando Vasculha Síncrona para: {nome_politico}")
-    query = f"{nome_politico} investigado corrupção STF"
+    print(f"🌐 [OSINT STF/PF] Iniciando Vasculha Síncrona Total para: {nome_politico}")
+    
+    # 3 Queries separadas para impedir bloqueio por complexidade do DuckDuckGo e obter mais dados reais
+    query1 = f"{nome_politico} investigado STF corrupção"
+    query2 = f"{nome_politico} condenado processo tribunal"
+    query3 = f"{nome_politico} inquérito Polícia Federal"
+    
     resultados = []
     try:
         with DDGS() as ddgs:
-            resultados = list(ddgs.text(query, region='br-pt', safesearch='off', max_results=10))
+             res1 = list(ddgs.text(query1, region='br-pt', safesearch='off', max_results=3))
+             res2 = list(ddgs.text(query2, region='br-pt', safesearch='off', max_results=3))
+             res3 = list(ddgs.text(query3, region='br-pt', safesearch='off', max_results=3))
+             resultados.extend(res1 + res2 + res3)
     except Exception as e:
-        print(f"  ❌ Erro DuckDuckGo: {e}")
+        print(f"  ❌ Erro DuckDuckGo OSINT Criminal: {e}")
+        
     return resultados
 
 def avaliar_score_inicial_sincrono(nome_politico: str) -> tuple[int, list, list]:
     """
-    Garante que a rota do Frontend obtenha a penalidade baseada em fatos antes das views.
+    Função mantida para inicialização rápida da View inicial, MAS sem lista negra e 
+    dependendo puramente da internet e não de Hardcodes.
     """
     pontos_perdidos: int = 0
     red_flags: list[dict[str, str]] = []
     motivos: list[str] = []
     
-    # 1. LISTA NEGRA
-    for mafioso in LISTA_NEGRA:
-        if mafioso in nome_politico.lower():
-            pontos_perdidos += 500
-            motivos.append("Lista Negra Oficial (Risco Extremo)")
-            red_flags.append({
-                "data": datetime.now().strftime("%d/%m/%Y"),
-                "titulo": "Histórico Crítico em Foco Nacional",
-                "desc": f"Este político consta na base negra inicial de alta corrupção ({mafioso.title()}).",
-                "fonte": "Base Governamental"
-            })
-            print(f"  🚨 ALERTA: {nome_politico} está na LISTA NEGRA (-500 pontos)")
-            break
-
-    # 2. DUCKDUCKGO OSINT STF/PF
+    # DUCKDUCKGO OSINT STF/PF
     noticias = pesquisar_historico_criminal_sync(nome_politico)
     palavras_chave = ["réu", "propina", "desvio", "corrupção", "condenado", "lavagem de dinheiro", "inquérito", "indiciado", "lava jato", "stf", "polícia federal"]
+    
     for r in noticias:
         texto = str(r.get('title', '') + " " + r.get('body', '')).lower()
         title = r.get('title', 'Notícia')
@@ -170,21 +152,21 @@ def avaliar_score_inicial_sincrono(nome_politico: str) -> tuple[int, list, list]
         encontrado = [p for p in palavras_chave if p in texto]
         if encontrado:
             motivos.append(f"OSINT revelou: {', '.join(encontrado)}")
-            pontos_perdidos += 200
+            pontos_perdidos += 50 # Punição branda inicial, o Qwen julga o resto depois com profundidade
             red_flags.append({
                 "data": datetime.now().strftime("%d/%m/%Y"),
                 "titulo": title,
-                "desc": f"Evidências encontradas: {', '.join(encontrado)}.",
+                "desc": f"Evidências OSINT Superficial: {', '.join(encontrado)}.",
                 "fonte": url
             })
-            print(f"  🚨 ALERTA OSINT: {title} (-200 pts)")
+            print(f"  🚨 ALERTA OSINT SUPERFICIAL: {title} (-50 pts)")
             
     return pontos_perdidos, red_flags, motivos
 
 async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cpf_real: str | None = None, cnpjs_fornecedores: list | None = None, red_flags_iniciais: list | None = None, pontos_perdidos_iniciais: int = 0, despesas_para_analise: list | None = None):
     """
     Motor Central de Auditoria Governamental Background.
-    Cruza Receita Federal, CGU, IBAMA e TCU em tempo real.
+    Cruza Receita Federal, CGU, IBAMA, TCU E Passa para a Qwen Julgar.
     """
     print(f"\n=======================================================")
     print(f"🚀 INICIANDO AUDITORIA GOVTECH MULTI-API: {nome_politico.upper()}")
@@ -193,13 +175,13 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
     pontos_perdidos = pontos_perdidos_iniciais
     red_flags = list(red_flags_iniciais) if red_flags_iniciais else []
     empresas_detalhadas = []
+    noticias_criminais = pesquisar_historico_criminal_sync(nome_politico)
     
-    # 1. ISOLANDO SOBRENOMES DO POLÍTICO
+    # 1. ISOLANDO SOBRENOMES DO POLÍTICO (Para cruzamento)
     partes_nome = nome_politico.lower().split()
     ignorar_conectivos = {"dos", "das", "de", "do", "da", "filho", "junior", "neto", "jr"}
     nomes_limpos: list[str] = [str(p) for p in partes_nome if len(p) > 2 and p not in ignorar_conectivos]
     
-    # Extrai apenas os últimos nomes (sobrenomes reais)
     if len(nomes_limpos) > 2:
         sobrenomes_politico = [nomes_limpos[-2], nomes_limpos[-1]]
     elif len(nomes_limpos) == 2:
@@ -207,7 +189,6 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
     else:
         sobrenomes_politico = list(nomes_limpos)
         
-    # Remove primeiros nomes comuns compostos que causam falsos positivos
     nomes_comuns = {"maria", "joao", "ana", "paula", "jose", "pedro", "luiz", "carlos", "paulo", "antonio", "francisco"}
     sobrenomes_politico = [s for s in sobrenomes_politico if s not in nomes_comuns]
     
@@ -218,13 +199,13 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
         if is_pep:
             print("  🚨 POLÍTICO IDENTIFICADO COMO PEP ATIVO NA CGU.")
     
-    # 2. Limite a análise aos primeiros 15 itens
+    # Limite aos primeiros 15 itens
     cnpjs = set(cnpjs_fornecedores[:15]) if cnpjs_fornecedores else set()
     cnpjs_tse = buscar_cpf_e_bens_tse_sync(nome_politico)
     cnpjs.update(cnpjs_tse)
     cnpjs = [c for c in cnpjs if c and c.strip()]
     
-    # 3. VARREDURA DE EMPRESAS FORNECEDORAS (RECEITA FEDERAL)
+    # VARREDURA DE EMPRESAS FORNECEDORAS (RECEITA FEDERAL)
     for cnpj in cnpjs:
         dados_receita = await consultar_brasil_api_cnpj(cnpj)
         if dados_receita:
@@ -237,15 +218,12 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
                 "valor": "Consulta BrasilAPI Confidencial"
             })
             
-            # ALGORITMO CRÍTICO DE NEPOTISMO E LARANJAS
             nepotismo_encontrado = False
             for socio in socios:
                 socio_lower = str(socio).lower()
                 for sobrenome in sobrenomes_politico:
                     sobreno_str = str(sobrenome)
                     if sobreno_str in socio_lower:
-                        print(f"  🩸 MATCH DE SOBRENOME DETECTADO: '{sobreno_str.upper()}' cruzado com sócio '{str(socio).upper()}' (Empresa Fornecedora: {nome_empresa})")
-                        pontos_perdidos += 400
                         red_flags.append({
                             "data": datetime.now().strftime("%d/%m/%Y"),
                             "titulo": "🚨 ALERTA: Possível Nepotismo / Laranja",
@@ -253,14 +231,13 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
                             "fonte": f"https://brasilapi.com.br/api/cnpj/v1/{cnpj}"
                         })
                         nepotismo_encontrado = True
-                        break # Encerra o loop de sobrenomes
+                        break 
                 if nepotismo_encontrado:
-                    break # Encerra o loop de socios
+                    break
             
-            # 4. VARREDURA DE SANÇÕES PARA A EMPRESA (CGU)
+            # VARREDURA DE SANÇÕES (CGU)
             sancoes = await consultar_cgu_sancoes(cnpj)
             if sancoes:
-                pontos_perdidos += 300
                 red_flags.append({
                     "data": sancoes[0].get("dataPublicacaoSancao", "N/A"),
                     "titulo": "Empresa Sancionada (CGU)",
@@ -274,11 +251,10 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
                 "socios": []
             })
 
-    # 5. VARREDURA DE MULTAS AMBIENTAIS (IBAMA)
+    # VARREDURA DE MULTAS AMBIENTAIS (IBAMA)
     multas_ibama = await consultar_ibama_multas(nome_politico)
     if multas_ibama:
         for multa in multas_ibama:
-            pontos_perdidos += 150
             red_flags.append({
                 "data": multa.get("DAT_HORA_AUTO_INFRACAO", "N/A"),
                 "titulo": "Autuação Ambiental (IBAMA)",
@@ -286,7 +262,7 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
                 "fonte": "https://dadosabertos.ibama.gov.br/"
             })
 
-    # 6. RASTREIO DE EMENDAS PARLAMENTARES (PIX)
+    # RASTREIO DE EMENDAS PARLAMENTARES (PIX)
     emendas = []
     if cpf_real and cpf_real != "00000000000":
         dados_emendas = await consultar_cgu_emendas(cpf_real)
@@ -304,29 +280,37 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
              print(f"  💸 EMENDAS ENCONTRADAS: Injetando {len(emendas)} no Grafo Financeiro.")
              empresas_detalhadas.extend(emendas)
 
-    # 7. INTEGRAÇÃO MOTOR DE IA QWEN
-    print("🧠 [LLM] Enviando Dossiê Sintetizado para a Qwen...")
+    # ==========================================================
+    # O JULGAMENTO DA IA - MOTOR QWEN
+    # ==========================================================
+    print("🧠 [LLM] Enviando Dossiê Sintetizado para a IA Julgar...")
     dossie_contexto = {
         "empresas_encontradas": empresas_detalhadas,
-        "noticias_osint": pesquisar_historico_criminal_sync(nome_politico),
+        "noticias_osint_criminais": noticias_criminais,
+        "red_flags_extraidas": red_flags,
         "despesas_camara": despesas_para_analise
     }
     
-    resultado_ia = await MotorIAQwen().analisar_dossie(dossie_contexto)
+    ia_engine = MotorIAQwen()
+    resultado_ia = await ia_engine.analisar_dossie(dossie_contexto)
     
     nivel_risco = resultado_ia.get("nivel_risco", "BAIXO").upper()
     print(f"🧠 Análise de IA Concluída: Risco {nivel_risco}")
     
-    # Deduções baseadas no Nível de Risco da IA
-    deducoes_ia = {"CRITICO": 500, "ALTO": 300, "MEDIO": 150, "BAIXO": 0}
-    pontos_perdidos += deducoes_ia.get(nivel_risco, 0)
+    # Atribuição pesada de punição gerida PELA I.A.
+    if nivel_risco == "CRITICO":
+        pontos_perdidos += 400
+    elif nivel_risco == "ALTO":
+        pontos_perdidos += 300
+    elif nivel_risco == "MEDIO":
+        pontos_perdidos += 150
     
     for rf_ia in resultado_ia.get("red_flags", []):
         red_flags.append({
             "data": datetime.now().strftime("%d/%m/%Y"),
-            "titulo": f"🤖 IA Alert: Risco {nivel_risco}",
-            "desc": rf_ia.get("motivo", "Anomalia detectada pelo Motor IA"),
-            "fonte": "Auditoria IA (Qwen)"
+            "titulo": f"🤖 Veridito IA (Qwen): Risco {nivel_risco}",
+            "desc": str(rf_ia).get("motivo", str(rf_ia)),
+            "fonte": "Auditoria IA Distribuída"
         })
 
     # Regra de Segurança: Score nunca é negativo
