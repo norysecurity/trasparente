@@ -103,8 +103,12 @@ export default function PoliticoPerfil() {
                         <div className="absolute -top-40 -right-40 w-96 h-96 bg-red-600/10 blur-[100px] rounded-full pointer-events-none" />
                     )}
 
-                    <div className="w-40 h-40 rounded-full overflow-hidden border-4 border-neutral-800 shadow-2xl shrink-0 relative">
-                        <img src={politicoData.foto} alt={politicoData.nome} className="w-full h-full object-cover" />
+                    <div className="w-40 h-40 rounded-full overflow-hidden border-4 border-neutral-800 shadow-2xl shrink-0 relative flex items-center justify-center bg-neutral-900">
+                        {politicoData.foto ? (
+                            <img src={politicoData.foto} alt={politicoData.nome} className="w-full h-full object-cover" />
+                        ) : (
+                            <span className="text-6xl font-black text-neutral-700 uppercase">{politicoData.nome?.charAt(0)}</span>
+                        )}
                         {politicoData.score_auditoria < 500 && <div className="absolute inset-0 bg-red-500/20 mix-blend-multiply" />}
                     </div>
 

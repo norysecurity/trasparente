@@ -1,0 +1,15 @@
+{
+    "id_politico": 900001,
+    "redFlags": [
+        {
+            "data": "28/02/2026",
+            "titulo": "Histórico Crítico em Foco Nacional",
+            "desc": "Este político consta na base negra inicial de alta corrupção (Lula).",
+            "fonte": "Base Governamental"
+        }
+    ],
+    "pontos_perdidos": 500,
+    "empresas": [],
+    "despesas_brutas": [],
+    "data_auditoria": "2026-02-28T01:09:09.880588"
+}

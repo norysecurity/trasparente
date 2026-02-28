@@ -61,7 +61,13 @@ export default function RelatorioCompleto() {
             <main className="max-w-5xl mx-auto px-6 py-12">
                 {/* HEADER DO RELATÓRIO */}
                 <div className="flex flex-col md:flex-row items-center gap-6 mb-16 border-b border-neutral-800 pb-12">
-                    <img src={politicoData.foto} alt={politicoData.nome} className="w-32 h-32 rounded-2xl object-cover border border-neutral-700 grayscale hover:grayscale-0 transition duration-500" />
+                    {politicoData.foto ? (
+                        <img src={politicoData.foto} alt={politicoData.nome} className="w-32 h-32 rounded-2xl object-cover border border-neutral-700 grayscale hover:grayscale-0 transition duration-500 shrink-0" />
+                    ) : (
+                        <div className="w-32 h-32 rounded-2xl border border-neutral-700 bg-neutral-900 flex items-center justify-center shrink-0">
+                            <span className="text-5xl font-black text-neutral-700 uppercase">{politicoData.nome?.charAt(0)}</span>
+                        </div>
+                    )}
                     <div className="text-center md:text-left">
                         <h1 className="text-4xl font-black text-white">{politicoData.nome}</h1>
                         <p className="text-lg text-neutral-400 font-bold mt-1">{politicoData.cargo} • {politicoData.partido} • {politicoData.uf}</p>
