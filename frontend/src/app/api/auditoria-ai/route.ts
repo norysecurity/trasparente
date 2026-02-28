@@ -49,9 +49,9 @@ export async function POST(req: Request) {
         Gere o laudo pericial final agora:
         `;
 
-        // Executando no Modelo Obrigatório Gemini 3 Pro Preview
+        // Executando no Modelo Obrigatório Gemini (Fallback para Flash perante Rate Limit)
         const response = await ai.models.generateContent({
-            model: "gemini-3-pro-preview",
+            model: "gemini-3-flash-preview",
             contents: prompt,
             config: {
                 temperature: 0.2, // Baixa temperatura para fatos matemáticos/análise fria
@@ -67,6 +67,13 @@ export async function POST(req: Request) {
 
     } catch (e: any) {
         console.error("Erro na Auditoria IA:", e);
+
+        // Se for erro de cota ou limitação da API
+        if (e.message && e.message.includes("429")) {
+            return NextResponse.json({
+                error: "A API do Gemini está temporariamente sobrecarregada (Rate Limit - Erro 429). Por favor, aguarde cerca de 1 minuto e tente novamente."
+            }, { status: 429 });
+        }
         return NextResponse.json({
             error: "Erro inesperado ao gerar a Auditoria de Inteligência Artificial.",
             details: e.message
