@@ -1,0 +1,434 @@
+VISÃO GERAL DO FLUXO
+
+A IA não “vai à internet sozinha” nem invade sistemas.
+Ela opera sobre:
+
+Bases públicas abertas
+
+APIs governamentais oficiais
+
+Arquivos públicos em CSV/JSON
+
+Banco de dados em grafo
+
+Algoritmos de análise de padrão
+
+O fluxo pode ser dividido em 7 etapas:
+
+Entrada (CPF)
+↓
+Coleta automática de dados públicos (APIs)
+↓
+Normalização / ETL
+↓
+Criação de grafo relacional
+↓
+Análise de padrões
+↓
+Cálculo de risco
+↓
+Relatório investigativo
+
+Agora vamos detalhar cada etapa tecnicamente.
+
+1️⃣ ETAPA 1 — PONTO DE PARTIDA (INPUT)
+🎯 Entrada principal:
+
+CPF de político ou agente público
+
+O CPF funciona como chave primária de relacionamento.
+
+A partir dele, o sistema começa a expandir conexões.
+
+2️⃣ ETAPA 2 — COLETA DE DADOS (APIs CONSUMIDAS)
+
+Aqui o sistema dispara múltiplas consultas automáticas.
+
+🏛 Principais APIs e fontes:
+🔹 1. Portal da Transparência
+
+Portal da Transparência
+
+API REST pública:
+
+Despesas
+
+Convênios
+
+Emendas parlamentares
+
+Transferências
+
+Favorecidos por CPF/CNPJ
+
+Consulta típica:
+
+GET /api-de-dados/despesas?cpf=XXX
+🔹 2. Tribunal de Contas da União
+
+Tribunal de Contas da União
+
+Dados de:
+
+Processos
+
+Auditorias
+
+Responsabilizações
+
+🔹 3. Tribunal Superior Eleitoral
+
+Tribunal Superior Eleitoral
+
+Dados:
+
+Bens declarados
+
+Doações eleitorais
+
+Histórico de candidatura
+
+🔹 4. Receita Federal (CNPJ / QSA)
+
+Receita Federal do Brasil
+
+Dados:
+
+Quadro societário
+
+Empresas vinculadas ao CPF
+
+Participações societárias
+
+🔹 5. IBGE
+
+IBGE
+
+Dados:
+
+Indicadores regionais
+
+Perfil econômico do município
+
+🔹 6. Banco Central
+
+Banco Central do Brasil
+
+Dados econômicos
+
+Indicadores financeiros públicos
+
+3️⃣ ETAPA 3 — ETL (EXTRAÇÃO, TRANSFORMAÇÃO, CARGA)
+
+Após coletar:
+
+O sistema:
+
+Padroniza nomes (remover acentos, caixa alta)
+
+Elimina duplicações
+
+Normaliza CNPJ/CPF
+
+Converte datas e valores
+
+Constrói identificadores únicos
+
+Exemplo:
+
+"José da Silva"
+"JOSE DA SILVA"
+"Jose Silva"
+
+→ vira uma única entidade
+
+Essa etapa é crítica para evitar falsos positivos.
+
+4️⃣ ETAPA 4 — CONSTRUÇÃO DO GRAFO
+
+O sistema utiliza banco orientado a grafos, como:
+
+Neo4j
+
+Estrutura do grafo:
+Nós (Nodes):
+
+Pessoa
+
+Empresa
+
+Município
+
+Contrato
+
+Emenda
+
+Processo
+
+Arestas (Edges):
+
+É sócio de
+
+Recebeu recurso de
+
+Executou contrato de
+
+Parente de
+
+Doou para
+
+Exemplo visual simplificado:
+
+[Político] → (destinou emenda) → [Município]
+[Município] → (contratou) → [Empresa]
+[Empresa] → (sócio) → [Parente do político]
+
+Isso é onde o poder real aparece.
+
+5️⃣ ETAPA 5 — A “SONDA” DA IA
+
+Agora entra a parte de análise.
+
+A IA executa algoritmos como:
+
+🔎 1. Busca de ciclos fechados
+
+Se dinheiro sai de A e volta para alguém ligado a A.
+
+🔎 2. Centralidade de rede
+
+Identifica nós muito conectados de forma incomum.
+
+🔎 3. Densidade de relação
+
+Quando empresa recém-criada recebe volume alto de contratos.
+
+🔎 4. Comparação temporal
+
+Patrimônio declarado x contratos posteriores.
+
+🔎 5. Similaridade estatística
+
+Compara comportamento com padrão médio nacional.
+
+6️⃣ ETAPA 6 — CÁLCULO DA PONTUAÇÃO DE RISCO
+
+Não é acusação.
+É score estatístico.
+
+Exemplo simplificado:
+
+Evento	Peso
+Empresa de parente ganha contrato	+25
+Contrato sem licitação	+20
+Patrimônio cresce 300%	+15
+Ligação indireta via sócio oculto	+30
+
+Score final:
+
+Risco = soma ponderada normalizada (0 a 100%)
+
+Se ultrapassa limite → sinal amarelo/vermelho.
+
+7️⃣ ETAPA 7 — RELATÓRIO FINAL
+
+O sistema gera:
+
+Mapa de conexões
+
+Linha do tempo
+
+Lista de contratos suspeitos
+
+Percentual de risco
+
+Justificativa técnica do score
+
+Importante:
+Ele não declara corrupção.
+Ele aponta padrões anômalos que merecem investigação humana.
+
+📡 ONDE A IA “VAI”?
+
+Ela NÃO navega aleatoriamente.
+
+Ela apenas:
+
+Consulta APIs oficiais
+
+Atualiza base local
+
+Roda algoritmos sobre banco interno
+
+Tudo ocorre em ambiente fechado.
+
+⚙️ INFRAESTRUTURA PROVÁVEL
+
+Segundo reportagens:
+
+Servidor local robusto
+
+~128GB RAM
+
+Grande volume de dados (~1TB)
+
+Processamento batch
+
+Atualizações periódicas
+
+Ainda em fase de protótipo.
+
+🎯 COMO ELA “EXPÕE” IRREGULARIDADES?
+
+Ela não expõe diretamente.
+
+Ela:
+
+Detecta padrões matemáticos
+
+Marca como anomalia
+
+Produz relatório técnico
+
+Permite que jornalista ou órgão investigue
+
+Ou seja: é ferramenta de triagem.
+
+🧠 RESUMO FINAL DA TRAJETÓRIA
+CPF →
+APIs públicas →
+Coleta automatizada →
+Limpeza →
+Banco em grafo →
+Algoritmos de rede →
+Score de risco →
+Relatório técnico
+
+
+Dossiê Comparativo: Projeto do Bruno vs. O Seu Código
+O Modelo do Bruno (ETL em Lote / Assíncrono):
+
+A Estratégia: Ele não faz o sistema bater no Portal da Transparência no momento em que alguém pesquisa um político.
+
+A Execução: Ele usa scripts de madrugada para baixar os arquivos brutos inteiros (Dumps/CSV de gigabytes) da Receita e do TSE, limpa tudo e joga no banco de dados em grafos (Neo4j).
+
+O Resultado: A pesquisa é instantânea e nunca cai, pois ele consulta o próprio banco local, sem depender da estabilidade dos sites do governo.
+
+O Seu Modelo Atual (Tempo Real / Síncrono):
+
+A Estratégia: O seu agente_coletor_autonomo.py tenta consultar 6 APIs diferentes do governo (CGU, TSE, Ibama, etc.) ao mesmo tempo, toda vez que o dossiê é gerado.
+
+O Problema: Os sites do governo são instáveis e têm "Rate Limits" (bloqueios por muitas requisições). Quando uma API demora ou bloqueia seu IP, o processo inteiro engasga.
+
+2. Diagnóstico: Por que as consultas não estão funcionando?
+Analisando linha por linha dos arquivos que você subiu (agente_coletor_autonomo.py e extrator_licitacoes_pncp.py), encontrei os erros fatais que estão impedindo a coleta:
+
+O Silenciador de Erros Fatais (O maior problema):
+Em quase todas as suas funções de busca (como consultar_cgu_pep e consultar_ibama_multas), você colocou um bloco try, seguido de except Exception: return [].
+O que acontece na prática: O agente do Antigravity tenta rodar o código. A API do governo recusa a conexão (erro 403 ou timeout). O Python cai no except, não mostra nenhum erro na tela, e retorna uma lista vazia. O agente da IDE acha que executou tudo com sucesso e que o político não tem processos, mas na verdade a API falhou e o erro foi escondido.
+
+Endpoint Inválido no PNCP:
+No arquivo extrator_licitacoes_pncp.py, você tenta buscar dados na URL:
+https://pncp.gov.br/api/pncp/v1/contratos?dataInicial=...
+A API v1 do PNCP não permite buscar todos os contratos do Brasil apenas por data nesse endpoint; ela exige o CNPJ do órgão (ex: /orgaos/{cnpj}/contratos). A requisição sempre vai falhar ou retornar vazio.
+
+Bloqueio do DuckDuckGo (OSINT):
+A biblioteca DDGS que você usa para mapear familiares bloqueia IPs rapidamente quando usada em automação severa sem pausas (time.sleep).
+
+3. Receita de Bolo: Como operar o Google Antigravity para consertar isso
+Como o Antigravity é uma IDE orientada a agentes, você não precisa copiar e colar o código na mão. Siga estes passos:
+
+Abra o "Agent Manager" (Gerenciador de Agentes) no Antigravity.
+
+Crie uma nova sessão e certifique-se de selecionar o modo "Planning Mode" (Modo de Planejamento) usando o modelo Gemini 3 Pro. O modo rápido (Fast Mode) é ruim para refatorações longas e pode gastar sua cota de tokens à toa.
+
+Cole o prompt detalhado (abaixo) diretamente no chat do agente.
+
+O agente vai ler os arquivos, reescrever os blocos de erro para usar logging (assim você verá no terminal os erros reais da API do governo) e testar os endpoints.
+
+Se o agente pedir permissão para rodar comandos no terminal (para testar os scripts), permita. É assim que ele vai validar se o governo está respondendo.
+
+O Dossiê Completo: A Arquitetura do Projeto do Bruno
+O grande segredo do projeto do Bruno é que a IA não navega na internet buscando dados em tempo real. Se você botar a IA para pesquisar o nome de um político no Google ou em APIs na hora que o usuário clica no botão, o sistema vai travar.
+
+A arquitetura dele é dividida em 3 Camadas de Operação:
+
+1. Camada de Ingestão (O Trabalho Sujo)
+O que faz: Scripts (Workers) rodam em horários agendados (ex: 2h da manhã) baixando gigabytes de dados abertos.
+
+Como faz: Eles não pesquisam um CPF por vez. Eles baixam o "Dump" (banco de dados inteiro) do Portal da Transparência, da Receita Federal (todos os CNPJs do Brasil) e do TSE.
+
+Onde armazena: Esses arquivos brutos em CSV ou JSON são jogados em um Data Lake (no seu caso, o Google Drive serve perfeitamente para guardar o arquivo cru).
+
+2. Camada do Grafo (O Cérebro de Conexões)
+O que faz: Transforma tabelas chatas em uma teia de aranha (Grafos).
+
+Como faz: Um script lê o Drive, limpa os dados e insere no banco Neo4j. Ele cria os "Nós" (Político, Empresa, Sócio, Emenda) e as "Arestas" (Conexões).
+
+A Mágica: É aqui que o sistema descobre que o Político X mandou dinheiro para a Empresa Y, que tem como Sócio Z, que por acaso tem o mesmo sobrenome do Político. O banco de dados faz essa matemática instantaneamente.
+
+3. Camada da IA Investigadora (O Papel do seu Qwen/Gemini)
+A Função da IA: A IA age como um auditor de compliance. Ela não coleta dados; ela julga os dados.
+
+Como ela trabalha: 1. O usuário digita um CPF.
+2. O backend vai no banco Neo4j e puxa a "teia" daquele CPF (quais empresas ele pagou, quem são os sócios, quais as emendas).
+3. O backend empacota essa teia em um JSON estruturado e manda para a IA com a seguinte instrução: "Analise essas conexões e me dê um Score de Risco de Corrupção".
+4. A IA lê o JSON, aplica regras de lógica (ex: "Empresa aberta há 2 meses recebendo 5 milhões = Red Flag Alto"), calcula o risco, escreve um resumo do esquema e devolve.
+
+Onde armazena o resultado: O Dossiê finalizado (o veredito da IA) é salvo em JSON no banco PostgreSQL para leitura rápida no frontend, e um PDF de backup vai para o Google Drive.
+
+Você é um Arquiteto de Software Sênior e Especialista em Engenharia de Dados e IA Investigativa. Sua missão é refatorar completamente o backend do meu projeto 'Trasparente', espelhando a arquitetura de grandes plataformas de Civic Tech (tecnologia cívica e auditoria governamental).
+
+O sistema atual está falhando porque tenta consultar APIs do governo em tempo real e pede para a IA fazer Web Scraping, causando Rate Limits, Timeouts e bloqueios.
+
+Eu exijo que você implemente e me forneça o código completo e absoluto para a seguinte arquitetura de 3 fases:
+
+FASE 1: O PIPELINE DE ETL (Workers Assíncronos)
+Crie os scripts de extração que rodam em background (sem intervenção do usuário). Eles devem consumir as APIs do governo com tolerância a falhas.
+
+Refatore agente_coletor_autonomo.py e extrator_licitacoes_pncp.py.
+
+Remova TODOS os blocos except Exception: pass ou return []. Use a biblioteca logging nativa do Python. Se a API retornar erro (ex: 429, 403, 500), o erro e o texto da resposta (res.text) devem ser logados no terminal.
+
+No extrator_licitacoes_pncp.py, troque a URL /api/pncp/v1/contratos para o endpoint correto de busca global aberta do PNCP, garantindo que contratos milionários sejam puxados e logados corretamente.
+
+Inclua pausas lógicas (asyncio.sleep ou time.sleep) para respeitar o Rate Limit das APIs governamentais (CGU, Câmara, Ibama).
+
+FASE 2: O MOTOR DE GRAFOS (Neo4j)
+Crie o módulo que organiza a corrupção em teias.
+
+Crie/Refatore o arquivo database/neo4j_conn.py.
+
+Escreva as funções Cypher completas para ingerir dados:
+
+merge_politico(dados): Cria o nó (:Politico).
+
+merge_empresa(dados): Cria o nó (:Empresa).
+
+merge_relacao_financeira(cpf_politico, cnpj_empresa, valor, tipo): Cria a aresta [:PAGOU_A] ou [:DESTINOU_EMENDA].
+
+Crie a função crucial de consulta: extrair_subgrafo_para_ia(cpf). Esta função deve rodar uma query Cypher que retorne até 3 graus de separação do político (Político -> Emendas -> Empresas -> Sócios) em um formato JSON limpo.
+
+FASE 3: A IA AUDITORA (O Motor Cognitivo)
+O Qwen/Gemini não vai buscar dados na web. Ele vai auditar o grafo.
+
+Refatore o arquivo motor_ia_qwen.py.
+
+Crie uma classe AuditorGovernamentalIA.
+
+Ela deve ter um método analisar_teia_financeira(json_do_neo4j).
+
+O System Prompt interno desta IA deve instruí-la a:
+
+Receber as conexões do Neo4j.
+
+Procurar anomalias: Autocontratação (sócio é parente), volume financeiro desproporcional à idade da empresa, densidade suspeita de contratos.
+
+Retornar estritamente um JSON contendo: score_risco (0 a 100), red_flags (lista de alertas graves) e resumo_investigativo (um texto estilo dossiê explicando o esquema encontrado).
+
+FASE 4: ORQUESTRAÇÃO E GOOGLE DRIVE
+
+Refatore google_drive_manager.py para lidar com a ausência de tokens sem falhar silenciosamente. Ele deve ser o repositório final do arquivo JSON de resultado, atuando como o Data Lake frio do projeto.
+
+Trabalhe como um desenvolvedor experiente. Escreva os códigos completos para cada uma dessas fases, com tipagem estática (Type Hints), docstrings detalhadas e tratamento de erros profissional. Comece analisando o estado atual dos meus arquivos e me entregando o código reescrito da FASE 1 e FASE 3 primeiro.
+

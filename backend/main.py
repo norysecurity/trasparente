@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from duckduckgo_search import DDGS
 
-from agente_coletor_autonomo import avaliar_score_inicial_sincrono, auditar_malha_fina_assincrona, avaliar_score_inicial_assincrono
+from agente_coletor_autonomo import auditar_malha_fina_assincrona
 
 app = FastAPI(title="GovTech Transparência API")
 
@@ -144,14 +144,13 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
     if id_pol in nome_presidenciais_dict:
         # É um VIP (Presidente, Ministro). Aciona OSINT profunda usando o CPF real embutido.
         vip_data = nome_presidenciais_dict[id_pol]
+        
+        # Simula o antigo avaliar_score_inicial_assincrono para VIPs e direciona para o novo Motor
         background_tasks.add_task(
-            avaliar_score_inicial_assincrono,
-            id_pol,
+            auditar_malha_fina_assincrona,
+            int(id_pol),
             vip_data["nome_completo"],
-            vip_data["cpf"], # ENVIA O CPF REAL! Isso liga o motor de buscas de CGU para esse CPF!
-            [], # Sem despesas da camara
-            {}, # Sem dados completos da camara
-            []  # Sem projetos da camara
+            vip_data["cpf"]
         )
         return {
             "status": "sucesso",
@@ -235,7 +234,8 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
                 historico_redflags, pontos_perdidos, empresas_geradas = dossie_cache.get("redFlags", []), dossie_cache.get("pontos_perdidos", 0), dossie_cache.get("empresas", [])
         except: pass
     else:
-        pontos_perdidos, historico_redflags, motivos_detalhados = avaliar_score_inicial_sincrono(nome_completo)
+        # Mock para manter a tela renderizando até o Background Task da IA (Auditoria Offline) concluir
+        pontos_perdidos, historico_redflags, motivos_detalhados = 150, [], []
         os.makedirs("dossies", exist_ok=True)
         with open(caminho_dossie, "w", encoding="utf-8") as file:
             json.dump({"id_politico": id, "redFlags": historico_redflags, "pontos_perdidos": pontos_perdidos, "data_auditoria": datetime.now().isoformat()}, file, ensure_ascii=False, indent=4)
