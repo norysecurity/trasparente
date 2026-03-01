@@ -285,39 +285,62 @@ export default function Home() {
           {/* Animação 3D de Barras de Influência Acima da Cidade Selecionada */}
           {cidadeAnimacao3D && (
             <Marker longitude={cidadeAnimacao3D.lng} latitude={cidadeAnimacao3D.lat} anchor="bottom">
-              <div className="relative pointer-events-none flex items-end justify-center gap-2 h-64 w-32 pb-4">
-                {cidadeAnimacao3D.top3.map((pol, idx) => {
-                  // Altura baseada na posição (1o lugar é maior, 3o menor)
-                  const hClass = idx === 0 ? "h-56" : idx === 1 ? "h-40" : "h-24";
-                  const delay = idx * 0.2;
-                  return (
-                    <motion.div
-                      key={pol.id || idx}
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "100%", opacity: 1 }}
-                      transition={{ duration: 1.5, ease: "easeOut", delay }}
-                      className={`relative w-4 ${hClass} bg-gradient-to-t from-emerald-500/80 to-emerald-300/20 rounded-t-sm shadow-[0_0_20px_rgba(16,185,129,0.5)] flex flex-col justify-between items-center group overflow-visible`}
-                      style={{
-                        transformStyle: 'preserve-3d',
-                        transform: 'perspective(500px) rotateX(20deg)'
-                      }}
-                    >
-                      {/* Beam Light saindo para o céu */}
-                      <div className="absolute -top-32 w-full h-32 bg-gradient-to-t from-emerald-400/40 to-transparent"></div>
+              <div className="relative pointer-events-none flex items-end justify-center gap-8 h-64 w-64 pb-4">
+                {(() => {
+                  const top = cidadeAnimacao3D.top3;
+                  // Estilo Pódio: 2º, 1º, 3º lugar
+                  const podium = top.length === 3
+                    ? [{ pol: top[1], rank: 2 }, { pol: top[0], rank: 1 }, { pol: top[2], rank: 3 }]
+                    : top.map((pol, i) => ({ pol, rank: i + 1 }));
 
-                      {/* Rótulo Flutuante no topo do "Prédio" */}
+                  return podium.map(({ pol, rank }) => {
+                    const hClass = rank === 1 ? "h-56" : rank === 2 ? "h-40" : "h-24";
+                    const delay = rank * 0.2;
+                    return (
                       <motion.div
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: -20 }}
-                        transition={{ delay: delay + 1.2, duration: 0.5 }}
-                        className="absolute -top-12 whitespace-nowrap text-center"
+                        key={pol.id || pol.nome}
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "100%", opacity: 1 }}
+                        transition={{ duration: 1.5, ease: "easeOut", delay }}
+                        className={`relative w-6 ${hClass} bg-gradient-to-t from-transparent via-emerald-500/40 to-emerald-500/90 shadow-[0_0_20px_rgba(16,185,129,0.2)] flex flex-col justify-between items-center group overflow-visible`}
+                        style={{
+                          transformStyle: 'preserve-3d',
+                          transform: 'perspective(500px) rotateX(15deg)'
+                        }}
                       >
-                        <img src={pol.url_foto || `https://ui-avatars.com/api/?name=${pol.nome}&background=random`} className="w-6 h-6 rounded-full border border-emerald-500 shadow-lg mx-auto mb-1 opacity-90 object-cover bg-neutral-800" alt="Avatar" />
-                        <p className="text-[8px] font-mono text-emerald-400 tracking-wider bg-black/80 px-1 rounded backdrop-blur-sm border border-emerald-500/30">{pol.nome.split(" ")[0]}</p>
+                        {/* Feixe de luz subindo para o céu */}
+                        <div className="absolute -top-32 w-full h-32 bg-gradient-to-t from-emerald-500/80 to-transparent blur-[2px]"></div>
+
+                        {/* Rótulo Flutuante no topo do "Prédio" */}
+                        <motion.div
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: -25 }}
+                          transition={{ delay: delay + 1.2, duration: 0.5 }}
+                          className="absolute -top-16 whitespace-nowrap flex flex-col items-center"
+                        >
+                          {/* Avatar Retangular com Efeito de "Fogo" (Glow Animado) */}
+                          <div className="relative w-10 h-10 mb-2">
+                            {/* Fogo/Glow Animado ao redor */}
+                            <div className="absolute -inset-1.5 bg-gradient-to-r from-emerald-400 via-teal-500 to-emerald-600 rounded-md blur-sm opacity-80 animate-pulse"></div>
+                            {/* Borda interna brilhante */}
+                            <div className="absolute -inset-0.5 bg-gradient-to-b from-white/50 to-transparent rounded-md z-0"></div>
+
+                            {/* Foto Quadrada/Retangular */}
+                            <img src={pol.url_foto || `https://ui-avatars.com/api/?name=${pol.nome}&background=random`} className="relative w-full h-full object-cover rounded-md border-2 border-emerald-950 shadow-2xl bg-neutral-900 z-10" alt="Avatar" />
+
+                            {/* Indicador numérico do Rank */}
+                            <div className="absolute -bottom-2 -right-2 bg-emerald-600 border border-neutral-900 text-white text-[9px] font-black w-4 h-4 rounded flex items-center justify-center z-20 shadow-lg">
+                              {rank}
+                            </div>
+                          </div>
+                          <p className="text-[10px] font-mono font-bold text-white tracking-widest bg-black/90 px-1.5 py-0.5 rounded-sm border border-emerald-500/40 shadow-xl uppercase">
+                            {pol.nome.split(" ")[0]}
+                          </p>
+                        </motion.div>
                       </motion.div>
-                    </motion.div>
-                  )
-                })}
+                    )
+                  });
+                })()}
               </div>
             </Marker>
           )}
