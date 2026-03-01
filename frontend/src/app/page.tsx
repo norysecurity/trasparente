@@ -234,42 +234,23 @@ export default function Home() {
                 }}
               >
 
-                {/* Etiqueta 3D Flutuante Permanente Acima da Bolinha Roxa */}
-                {(cidade.nome && !cidade.nome.startsWith("Alvo Prox")) && (
-                  <div className="absolute bottom-6 font-black text-xl tracking-tight text-white uppercase drop-shadow-[0_4px_4px_rgba(0,0,0,1)] pointer-events-none whitespace-nowrap opacity-60 group-hover:opacity-100 transition-opacity">
-                    {cidade.nome}
-                  </div>
-                )}
-
-                {/* Nome de Cidades Clicadas Livres (Nome Dinâmico da API que jogamos no Tooltip) */}
-                {cidadeSelecionada && cidade.nome.startsWith("Alvo Prox") && cidadeSelecionada !== "Buscando alvo..." && cidadeSelecionada !== "Alvo Indeterminado" && (
-                  // Esse bloco serve mais se a lista mapeasse itens livre; como "cidade.nome" dos nós visuais não repassa cidadeSelecionada local, o relevo baseia-se na const ativa local abaixo
-                  null
-                )}
-
                 <div className="relative flex items-center justify-center p-2">
-                  {/* Bolinha Roxa Fixa */}
+                  {/* Bolinha Roxa (Pulsante e Fixa) */}
                   <div className="absolute inset-0 bg-purple-500 rounded-full animate-ping opacity-75"></div>
                   <div className="relative w-4 h-4 bg-purple-600 border-2 border-white rounded-full shadow-[0_0_15px_rgba(168,85,247,0.8)] z-10"></div>
                 </div>
 
-                {/* Tooltip Hover Redondezas */}
-                <div className="absolute -bottom-8 hidden group-hover:flex bg-black/80 backdrop-blur-md border border-purple-500/40 px-2 py-1 rounded-lg whitespace-nowrap z-20 shadow-xl pointer-events-none">
-                  <p className="text-[9px] text-purple-400 font-mono tracking-widest">{cidade.tipo}</p>
+                {/* Tooltip Estilo Cyberpunk (Hover) baseado na Imagem */}
+                <div className="absolute top-10 hidden group-hover:flex bg-[#0a0a0a] border border-purple-600/60 px-3 py-1.5 rounded-md z-20 shadow-[0_4px_20px_rgba(168,85,247,0.15)] pointer-events-none whitespace-nowrap">
+                  {/* Se for uma cidade do radar dinâmico sem clique ainda, exibimos o "tipo", senão o nome */}
+                  <span className="text-xs text-purple-400 font-mono tracking-widest uppercase truncate max-w-[200px]">
+                    {cidade.nome.startsWith("Alvo Prox") ? cidade.tipo : cidade.nome}
+                  </span>
                 </div>
               </div>
             </Marker>
           ))}
 
-          {/* Rótulo 3D Dinâmico para Cidades Selecionadas via Clique Livre */}
-          {cidadeSelecionada && cidadeSelecionada !== "Buscando alvo..." && cidadeSelecionada !== "Alvo Indeterminado" && mapRef.current && (
-            // Vamos reaproveitar a posição central do mapa para mostrar o título 3D grandão
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[15vh] pointer-events-none z-0">
-              <h2 className="text-6xl md:text-8xl font-black text-white/5 uppercase blur-[1px] tracking-tighter" style={{ WebkitTextStroke: '2px rgba(255,255,255,0.2)' }}>
-                {cidadeSelecionada}
-              </h2>
-            </div>
-          )}
         </Map>
       </div>
 
