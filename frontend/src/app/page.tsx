@@ -288,13 +288,13 @@ export default function Home() {
               <div className="relative pointer-events-none flex items-end justify-center gap-8 h-64 w-64 pb-4">
                 {(() => {
                   const top = cidadeAnimacao3D.top3;
-                  // Estilo Pódio: 2º, 1º, 3º lugar
+                  // Estilo Pódio: 3º, 1º, 2º lugar
                   const podium = top.length === 3
-                    ? [{ pol: top[1], rank: 2 }, { pol: top[0], rank: 1 }, { pol: top[2], rank: 3 }]
+                    ? [{ pol: top[2], rank: 3 }, { pol: top[0], rank: 1 }, { pol: top[1], rank: 2 }]
                     : top.map((pol, i) => ({ pol, rank: i + 1 }));
 
                   return podium.map(({ pol, rank }) => {
-                    const hClass = rank === 1 ? "h-56" : rank === 2 ? "h-40" : "h-24";
+                    const hClass = rank === 1 ? "h-64" : rank === 2 ? "h-44" : "h-28";
                     const delay = rank * 0.2;
                     return (
                       <motion.div
@@ -480,7 +480,7 @@ export default function Home() {
                   ) : (
                     <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
                       {(abaAtiva === "cidade" ? politicosLocais : politicosEstado).map((pol, idx) => (
-                        <div key={idx} className="bg-black/50 border border-neutral-800 rounded-xl p-4 hover:border-emerald-500/50 transition-colors group">
+                        <div key={idx} className={`bg-black/50 border ${idx === 0 ? 'border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'border-neutral-800'} rounded-xl p-4 hover:border-emerald-500/50 transition-colors group`}>
                           <div className="flex justify-between items-start mb-3">
                             <div>
                               <div className="flex items-center gap-2 mb-1">

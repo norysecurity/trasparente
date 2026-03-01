@@ -45,15 +45,15 @@ def obter_score_dossie(id_politico):
 def dashboard_guerra():
     return {
         "status": "sucesso",
-        "top10": [
+        "top_risco": [
             {"nome": "Bolsonaro", "partido": "PL", "estado": "RJ", "score": 850, "foto": "https://www.camara.leg.br/internet/deputado/bandep/74847.jpg"},
             {"nome": "Lula", "partido": "PT", "estado": "SP", "score": 820, "foto": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Presidente_Luiz_In%C3%A1cio_Lula_da_Silva_em_2023.jpg/800px-Presidente_Luiz_In%C3%A1cio_Lula_da_Silva_em_2023.jpg"},
             {"nome": "Flávio Dino", "partido": "STF", "estado": "MA", "score": 790, "foto": "https://upload.wikimedia.org/wikipedia/commons/b/b8/Fl%C3%A1vio_Dino_em_2023.jpg"}
         ],
-        "feed": [
-            {"alvo": "Eduardo Bolsonaro", "acao": "Gastou R$ 45.000 em Dubai sem agenda oficial.", "impacto": -80, "fonte": "CGU", "tempo": "10 min atrás"},
-            {"alvo": "Gleisi Hoffmann", "acao": "Omitiu R$ 1.2M do patrimônio do TSE.", "impacto": -120, "fonte": "TSE", "tempo": "1h atrás"},
-            {"alvo": "Tarcísio Gomes", "acao": "Rede ligada ao PCC venceu licitação da CPTM.", "impacto": -150, "fonte": "TCE-SP", "tempo": "2h atrás"}
+        "alertas_recentes": [
+            {"alvo": "Eduardo Bolsonaro", "mensagem": "Gastou R$ 45.000 em Dubai sem agenda oficial.", "urgencia": "MÉDIA", "fonte": "CGU", "tempo": "10 min atrás"},
+            {"alvo": "Gleisi Hoffmann", "mensagem": "Omitiu R$ 1.2M do patrimônio do TSE.", "urgencia": "ALTA", "fonte": "TSE", "tempo": "1h atrás"},
+            {"alvo": "Tarcísio Gomes", "mensagem": "Rede ligada ao PCC venceu licitação da CPTM.", "urgencia": "CRÍTICA", "fonte": "TCE-SP", "tempo": "2h atrás"}
         ]
     }
 
