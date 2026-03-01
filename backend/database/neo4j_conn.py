@@ -102,21 +102,8 @@ def get_neo4j_connection():
     return conn
 
 if __name__ == "__main__":
-    # Teste de conexão e inserção simulada
     conn = get_neo4j_connection()
-    
-    # Simulação do dicionário que seu motor IA já gera
-    mock_dossie = {
-        "id_politico": 900001,
-        "nome_politico": "Luiz Inácio Lula da Silva",
-        "empresas": [
-            {
-                "nome": "EMPRESA DE TESTE GOVTECH LTDA",
-                "cnpj": "12345678000199",
-                "socios": ["JOAO DA SILVA", "MARIA DA SILVA"]
-            }
-        ]
-    }
-    
-    conn.registrar_dossie_no_grafo(mock_dossie)
+    # Descomente a linha abaixo, rode o arquivo, e depois comente de novo!
+    # conn.limpar_banco()
     conn.close()
+

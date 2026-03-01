@@ -12,3 +12,6 @@ dist/
 # SO
 .DS_Store
 Thumbs.db
+backend/credentials.json
+backend/token.json
+backend/dossies/

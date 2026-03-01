@@ -71,6 +71,14 @@ async def consultar_cgu_emendas(cpf_autor: str) -> list:
         return res.json() if res.status_code == 200 else []
     except Exception: return []
 
+async def consultar_cgu_cartoes(cpf_portador: str) -> list:
+    cpf_limpo = "".join(filter(str.isdigit, cpf_portador))
+    url = f"https://api.portaldatransparencia.gov.br/api-de-dados/cartoes?cpfPortador={cpf_limpo}&pagina=1"
+    try:
+        res = await asyncio.to_thread(requests.get, url, headers=HEADERS_CGU, timeout=10)
+        return res.json() if res.status_code == 200 else []
+    except Exception: return []
+
 async def consultar_cgu_sancoes(cpf_ou_cnpj: str) -> list:
     doc_limpo = "".join(filter(str.isdigit, cpf_ou_cnpj))
     url = f"https://api.portaldatransparencia.gov.br/api-de-dados/ceis?codigoSancionado={doc_limpo}&pagina=1"
@@ -129,14 +137,33 @@ def avaliar_score_inicial_sincrono(nome_politico: str) -> tuple[int, list, list]
             break
 
     noticias = pesquisar_historico_criminal_sync(nome_politico)
-    palavras_chave = ["réu", "propina", "desvio", "corrupção", "condenado", "lavagem de dinheiro", "inquérito", "indiciado", "lava jato", "stf", "polícia federal", "investigação"]
-    for r in noticias:
-        texto = str(r.get('title', '') + " " + r.get('body', '')).lower()
-        encontrado = [p for p in palavras_chave if p in texto]
-        if encontrado:
-            motivos.append(f"OSINT revelou: {', '.join(encontrado)}")
-            pontos_perdidos += 200
-            red_flags.append({"data": datetime.now().strftime("%d/%m/%Y"), "titulo": r.get('title', 'Notícia'), "desc": f"Evidências: {', '.join(encontrado)}.", "fonte": r.get('href', '')})
+    palavras_chave_criminal = ["réu", "propina", "desvio", "corrupção", "condenado", "lavagem de dinheiro", "inquérito", "indiciado", "lava jato", "stf", "polícia federal", "investigação", "preso", "investigado", "pf"]
+    palavras_inocencia = ["absolvido", "inocentado", "arquivado", "falta de provas", "improcedente"]
+    
+    for n in list(noticias)[:5]:
+        texto = f"{n.get('title', '')} {n.get('body', '')}".lower()
+        
+        tem_inocencia = any(pi in texto for pi in palavras_inocencia)
+        
+        if any(p in texto for p in palavras_chave_criminal):
+            if not tem_inocencia:
+                # Crime achado e sem absolvicão = TOMA PONTO
+                pontos_perdidos += 200
+                motivos.append(f"OSINT revelou: {', '.join([p for p in palavras_chave_criminal if p in texto])}")
+                red_flags.append({
+                    "data": datetime.now().strftime("%d/%m/%Y"), 
+                    "titulo": f"Alerta OSINT: {n.get('title', 'Notícia/Processo')}", 
+                    "desc": f"Evidências: {', '.join([p for p in palavras_chave_criminal if p in texto])}.",
+                    "fonte": n.get('href', '')
+                })
+            else:
+                # Investigado mas INOCENTADO
+                red_flags.append({
+                    "data": datetime.now().strftime("%d/%m/%Y"), 
+                    "titulo": f"Alerta OSINT: {n.get('title', 'Notícia/Processo')}", 
+                    "desc": f"⚠️ ATENÇÃO: Consta registro de investigação, porém o resultado aponta: {', '.join([pi for pi in palavras_inocencia if pi in texto]).upper()}.",
+                    "fonte": n.get('href', '')
+                })
             
     return pontos_perdidos, red_flags, motivos
 
@@ -208,6 +235,12 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
         for emenda in (await consultar_cgu_emendas(cpf_real))[:10]:
             if emenda.get("valorEmpenhado", 0) > 0:
                 empresas_detalhadas.append({"nome": f"Emenda: {emenda.get('funcao', '')}", "cargo": f"Nº {emenda.get('codigoEmenda')}", "valor": f"R$ {emenda.get('valorEmpenhado'):,.2f}", "fonte": "CGU"})
+        
+        for cartao in (await consultar_cgu_cartoes(cpf_real))[:100]:
+            valor_transacao = float(cartao.get("valorTransacao", "0").replace(".", "").replace(",", ".") if isinstance(cartao.get("valorTransacao"), str) else cartao.get("valorTransacao", 0))
+            if valor_transacao > 0:
+                fornecedor = cartao.get("estabelecimento", {}).get("nomeRecebedor", "Fornecedor Sigiloso")
+                empresas_detalhadas.append({"nome": fornecedor, "cargo": "Cartão Corporativo (CPGF)", "valor": f"R$ {valor_transacao:,.2f}", "fonte": "Portal da Transparência"})
 
     resultado_ia = await MotorIAQwen().analisar_dossie({"cpf": cpf_real, "familiares_mapeados": familiares_conhecidos, "empresas": empresas_detalhadas, "noticias": pesquisar_historico_criminal_sync(nome_politico)})
     nivel_risco = resultado_ia.get("nivel_risco", "BAIXO").upper()
