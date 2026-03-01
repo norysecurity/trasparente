@@ -39,6 +39,9 @@ export default function Home() {
     padding: { top: 0, bottom: 0, left: 0, right: 0 }
   });
 
+  // Estado para Localização do Usuário Real
+  const [userLocation, setUserLocation] = useState<{ lat: number, lng: number } | null>(null);
+
   // Estados da Interface e Dados
   const [loading, setLoading] = useState(false);
   const [buscaNome, setBuscaNome] = useState("");
@@ -49,7 +52,7 @@ export default function Home() {
   const [feedGuerra, setFeedGuerra] = useState<any[]>([]);
   const [topRanking, setTopRanking] = useState<any[]>([]);
 
-  // Init: Carrega Dashboard Esquerdo (Guerra & Top Risco)
+  // Init: Carrega Dashboard Esquerdo (Guerra & Top Risco) e Localização Real
   useEffect(() => {
     fetch("http://localhost:8000/api/dashboard/guerra")
       .then(res => res.json())
@@ -60,6 +63,30 @@ export default function Home() {
         }
       })
       .catch(err => console.error("Erro ao carregar Dashboard:", err));
+
+    // Capturar localização do usuário
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const uLat = position.coords.latitude;
+          const uLng = position.coords.longitude;
+          setUserLocation({ lat: uLat, lng: uLng });
+
+          // Opcional: Animar a câmera para a localização do usuário ao entrar
+          if (mapRef.current) {
+            mapRef.current.flyTo({
+              center: [uLng, uLat],
+              zoom: 11,
+              pitch: 45,
+              duration: 3000
+            });
+          }
+        },
+        (error) => {
+          console.warn("Geolocalização negada ou falhou:", error);
+        }
+      );
+    }
   }, []);
 
   // Ação de Clique Dinâmico no Mapa (Qualquer Cidade do Brasil)
@@ -135,7 +162,7 @@ export default function Home() {
   };
 
   return (
-    <div className="relative w-full h-screen bg-black overflow-hidden selection:bg-purple-500/30 font-sans text-neutral-200 cursor-crosshair">
+    <div className="relative w-full h-screen bg-black overflow-hidden selection:bg-purple-500/30 font-sans text-neutral-200">
 
       {/* BACKGROUND: MAPBOX 3D */}
       <div className="absolute inset-0 z-0">
@@ -148,7 +175,30 @@ export default function Home() {
           mapboxAccessToken={MAPBOX_TOKEN}
           terrain={{ source: 'mapbox-dem', exaggeration: 1.5 }}
           minZoom={3}
+          cursor="pointer"
         >
+          {/* Marcador da Localização do Usuário */}
+          {userLocation && (
+            <Marker longitude={userLocation.lng} latitude={userLocation.lat} anchor="bottom">
+              <div className="relative flex flex-col items-center justify-center group">
+                {/* Tooltip Flutuante */}
+                <div className="absolute bottom-full mb-1 bg-neutral-900/90 backdrop-blur-md border border-red-500/50 px-3 py-1.5 rounded-lg whitespace-nowrap z-20 shadow-xl opacity-100 transition-opacity">
+                  <p className="text-xs font-bold text-white tracking-wider flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-red-500" /> SUA LOCALIZAÇÃO
+                  </p>
+                  <p className="text-[9px] text-red-400 font-mono tracking-widest uppercase">Cidades Próximas</p>
+                </div>
+                {/* Pino Vermelho (Prego) */}
+                <div className="w-4 h-4 bg-red-600 rounded-full border-2 border-white shadow-[0_0_15px_rgba(220,38,38,0.8)] z-10 relative flex items-center justify-center">
+                  <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>
+                </div>
+                <div className="w-0.5 h-6 bg-gradient-to-b from-red-600 to-transparent -mt-1"></div>
+                {/* Sombra base */}
+                <div className="w-4 h-1 bg-black/50 blur-[2px] rounded-full absolute -bottom-1"></div>
+              </div>
+            </Marker>
+          )}
+
           {/* Marcadores Luminosos (Radar Nodes) */}
           {CIDADES_RADAR.map((cidade, idx) => (
             <Marker key={idx} longitude={cidade.lng} latitude={cidade.lat} anchor="center">
