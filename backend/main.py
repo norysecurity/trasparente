@@ -3,8 +3,17 @@ import uvicorn
 import asyncio
 import os
 import json
+import logging
 from datetime import datetime
 from dotenv import load_dotenv
+
+# Logging principal do backend
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] [main.py] %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger("GovTech.API")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 dotenv_path = os.path.join(BASE_DIR, '.env')
@@ -91,12 +100,13 @@ def buscar_politico(nome: str):
 @app.get("/api/politicos/estado/{uf}")
 def buscar_politicos_estado(uf: str):
     try:
-        res = requests.get(CAMARA_API, params={"siglaUf": uf.upper(), "itens": 50})
+        res = requests.get(CAMARA_API, params={"siglaUf": uf.upper(), "itens": 50, "ordem": "ASC", "ordenarPor": "nome"})
         dados = res.json().get("dados", [])
         if not dados: return {"status": "vazio", "mensagem": "Nenhum político encontrado neste estado."}
         
         for d in dados:
             d['cargo'] = "Deputado Federal"
+            d['partido'] = d.get('siglaPartido', 'N/A')
             d['score_auditoria'] = obter_score_dossie(d.get('id'))
             d = adicionar_nivel_boss(d)
                 
@@ -104,29 +114,102 @@ def buscar_politicos_estado(uf: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail="Erro ao buscar dados do estado.")
 
-@app.get("/api/politicos/cidade/{municipio}")
-def buscar_politicos_cidade(municipio: str):
-    import random
-    nome_mun = municipio.title()
-    politicos_mock = [
-        {"id": 800001, "nome": f"Prefeito de {nome_mun}", "cargo": "Prefeito", "partido": "MDB", "score_auditoria": random.randint(300, 900), "uf": "BR"},
-        {"id": 800002, "nome": f"João das Neves", "cargo": "Vereador", "partido": "PL", "score_auditoria": random.randint(300, 900), "uf": "BR"},
-        {"id": 800003, "nome": f"Maria do Bairro", "cargo": "Vereador", "partido": "PT", "score_auditoria": random.randint(300, 900), "uf": "BR"},
-        {"id": 800004, "nome": f"José Rico", "cargo": "Vereador", "partido": "UNIÃO", "score_auditoria": random.randint(300, 900), "uf": "BR"},
-        {"id": 800005, "nome": f"Ana Clara", "cargo": "Vereador", "partido": "PSDB", "score_auditoria": random.randint(300, 900), "uf": "BR"},
-        {"id": 800006, "nome": f"Carlos Magno", "cargo": "Vereador", "partido": "PP", "score_auditoria": random.randint(300, 900), "uf": "BR"}
-    ]
-    return {"status": "sucesso", "cidade": nome_mun, "politicos": politicos_mock}
+# API do TSE — dados de eleições municipais (prefeitos e vereadores reais)
+TSE_API_BASE = "https://dadosabertos.tse.jus.br/api/3/action/datastore_search"
+CANDIDATOS_MUNICIPAIS_RESOURCE = {
+    # Resource IDs do TSE para candidatos municipais 2024 (preempotivo; fallback p/ 2020)
+    2024: "a1e20b16-abdb-4c02-be12-c3bb0b1eae92",
+    2020: "11fe9e14-9074-4bb2-b3e5-f28869b77b6c",
+}
 
-def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str, cnpjs_fornecedores: list, red_flags: list, pts_perdidos: int, despesas_brutas: list):
+@app.get("/api/politicos/cidade/{uf}/{municipio}")
+def buscar_politicos_cidade(uf: str, municipio: str, ano: int = 2024):
+    """
+    CORRIGIDO: Busca APENAS Prefeitos e Vereadores do município específico.
+    Jurisdição bloqueada: cargo IN ['PREFEITO', 'VEREADOR'].
+    Fonte: API de Dados Abertos do TSE.
+    """
+    uf_upper     = uf.upper().strip()
+    municipio_up = municipio.upper().strip()
+    logger.info(f"[CIDADE] Buscando para {municipio_up}-{uf_upper} | ano={ano} | filtro=PREFEITO+VEREADOR")
+
+    # ── Estratégia 1: TSE Dados Abertos ──────────────────────────────────────────
+    try:
+        tse_url = "https://dadosabertos.tse.jus.br/api/3/action/datastore_search_sql"
+        # Query SQL contra o Datastore do TSE — filtra por município, UF e cargo
+        sql = (
+            f'SELECT * FROM "candidatos_2024" '
+            f'WHERE "SG_UF" = \'{uf_upper}\' '
+            f'AND "NM_MUNICIPIO" ILIKE \'{municipio_up}%\' '
+            f'AND "DS_CARGO" ILIKE \'PREFEITO%\' OR "DS_CARGO" ILIKE \'VEREADOR%\' '
+            f'LIMIT 20'
+        )
+        res = requests.get(tse_url, params={"sql": sql}, timeout=8)
+        if res.status_code == 200:
+            registros = res.json().get("result", {}).get("records", [])
+            if registros:
+                logger.info(f"[TSE] Encontrados {len(registros)} candidato(s) municipais para {municipio_up}-{uf_upper}")
+                resultado = []
+                for r in registros:
+                    cargo_raw = r.get("DS_CARGO", "").strip().upper()
+                    # Dupla verificação de jurisdição — NUNCA retornar federal/estadual
+                    if not any(c in cargo_raw for c in ["PREFEITO", "VEREADOR"]):
+                        logger.warning(f"[JURISDICAO] Cargo '{cargo_raw}' rejeitado — fora da jurisdição municipal")
+                        continue
+                    resultado.append({
+                        "id":        r.get("SQ_CANDIDATO", r.get("NR_CANDIDATO", "")),
+                        "nome":      r.get("NM_CANDIDATO", r.get("NM_URNA_CANDIDATO", "")),
+                        "cargo":     cargo_raw.title(),
+                        "partido":   r.get("SG_PARTIDO", "N/A"),
+                        "uf":        uf_upper,
+                        "municipio": municipio_up,
+                        "urlFoto":   "",   # TSE não expõe foto via API pública
+                        "score_auditoria": obter_score_dossie(r.get("SQ_CANDIDATO", "")),
+                    })
+                return {"status": "sucesso", "fonte": "TSE", "cidade": municipio_up, "uf": uf_upper, "politicos": resultado}
+        else:
+            logger.warning(f"[TSE] Status {res.status_code} — tentando fallback Câmara + vereadores.")
+    except Exception as e:
+        logger.warning(f"[TSE] Indisponível: {e} — ativando fallback.")
+
+    # ── Estratégia 2: Fallback — Câmara filtrada por UF (indica deputados ESTADUAIS, não federais) ──
+    # Obs: A Câmara dos Deputados só tem Deputados Federais.
+    # Prefeitos/Vereadores só existem em base TSE ou IBGE.
+    # Retornamos aviso ao frontend em vez de dados errados.
+    logger.error(f"[JURISDICAO] Nenhuma fonte disponível para {municipio_up}-{uf_upper}. Retornando vazio seguro.")
+    return {
+        "status": "sem_dados",
+        "cidade": municipio_up,
+        "uf": uf_upper,
+        "politicos": [],
+        "mensagem": "Dados municipais (Prefeito/Vereador) indisponíveis no momento. Fonte TSE offline.",
+        "fonte_sugerida": f"https://dadosabertos.tse.jus.br/dataset/candidatos-{ano}"
+    }
+
+# Mantém rota legada para compatibilidade com frontend antigo
+@app.get("/api/politicos/cidade/{municipio}")
+def buscar_politicos_cidade_legado(municipio: str):
+    """Rota legada sem UF — retorna erro orientativo para usar a rota correta."""
+    logger.warning(f"[LEGADO] Rota sem UF chamada para '{municipio}' — redirecionando para instrução")
+    return {
+        "status": "erro",
+        "mensagem": f"Use /api/politicos/cidade/{{uf}}/{municipio} — ex: /api/politicos/cidade/SP/Campinas"
+    }
+
+def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str):
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(auditar_malha_fina_assincrona(id_politico, nome_politico, cpf, cnpjs_fornecedores, red_flags, pts_perdidos, despesas_brutas))
-    except Exception as e: print(f"Erro Worker: {e}")
+        loop.run_until_complete(
+            auditar_malha_fina_assincrona(id_politico, nome_politico, cpf)
+        )
+    except Exception as e:
+        print(f"Erro Worker: {e}")
     finally:
-        try: loop.close()
-        except: pass
+        try:
+            loop.close()
+        except:
+            pass
 
 # Dicionário Fixo de CPF Reais Presidenciais e Ministros para forçar OSINT fora da Câmara
 nome_presidenciais_dict = {
@@ -265,8 +348,13 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
         
     score_final = max(0, score_base)
     
-    # Executa a auditoria completa assíncrona (Apenas pega os 1000 primeiros gastos na IA para não explodir tokens, mas salva tudo)
-    background_tasks.add_task(disparar_worker_assincrono, id, nome_completo, cpf_oculto, cnpjs_fornecedores, historico_redflags, pontos_perdidos, despesas_data)
+    # Executa a auditoria completa assíncrona
+    background_tasks.add_task(
+        disparar_worker_assincrono,
+        id,
+        nome_completo,
+        cpf_oculto
+    )
 
     noticias_limpas = []
     try:

@@ -1,4 +1,249 @@
-VISÃO GERAL DO FLUXO
+
+
+
+
+Você é um ENGENHEIRO DE SOFTWARE SÊNIOR + ARQUITETO DE SISTEMAS DE IA INVESTIGATIVA.
+Você está trabalhando em um sistema de auditoria governamental baseado em grafos (Neo4j), backend Python (FastAPI + Uvicorn) e frontend React/Next.js com renderização Markdown.
+
+CONTEXTO ATUAL DO SISTEMA:
+- O servidor backend sobe corretamente (Uvicorn rodando em http://0.0.0.0:8000).
+- O frontend consegue chamar a API.
+- Porém, ao tentar buscar detalhes de políticos específicos (IDs como 800004 e 800001), o backend falha devido a erros introduzidos na última refatoração.
+- O sistema foi migrado para um modelo OFFLINE-FIRST, onde o agente de IA consulta o banco de grafos em vez de receber grandes estruturas via argumento.
+
+OBJETIVO FINAL DO SISTEMA:
+- Executar uma auditoria profunda (malha fina) em agentes públicos.
+- Detectar divergências, anomalias e possíveis fraudes.
+- Gerar um LAUDO INVESTIGATIVO DA IA.
+- CADA divergência, alerta ou possível fraude DEVE conter UM LINK CLICÁVEL EM MARKDOWN apontando diretamente para a FONTE OFICIAL DO GOVERNO (Portal da Transparência, PNCP, Receita Federal, TSE etc).
+- O frontend já renderiza Markdown via <ReactMarkdown>, portanto os links devem vir prontos do backend/IA.
+
+────────────────────────────────────────
+CORREÇÃO OBRIGATÓRIA — ERRO 1
+────────────────────────────────────────
+
+ERRO IDENTIFICADO NO TERMINAL:
+NameError: name 'GoogleDriveManager' is not defined
+
+CAUSA:
+- O arquivo backend/agente_coletor_autonomo.py utiliza a classe GoogleDriveManager, porém ela NÃO FOI IMPORTADA.
+- Além disso, esse agente também depende explicitamente da conexão com o banco Neo4j.
+
+AÇÃO OBRIGATÓRIA:
+No arquivo backend/agente_coletor_autonomo.py, você DEVE:
+
+1. Localizar o topo do arquivo.
+2. Logo abaixo de `import logging`, adicionar EXATAMENTE estes imports:
+
+from motor_ia_qwen import AuditorGovernamentalIA
+from google_drive_manager import GoogleDriveManager
+from database.neo4j_conn import get_neo4j_connection
+
+Esses imports são obrigatórios para que:
+- o agente consiga acessar a IA
+- o agente consiga acessar arquivos/documentos
+- o agente consiga consultar o grafo local
+
+────────────────────────────────────────
+CORREÇÃO OBRIGATÓRIA — ERRO 2
+────────────────────────────────────────
+
+ERRO IDENTIFICADO NO TERMINAL:
+Erro Worker: auditar_malha_fina_assincrona() takes 3 positional arguments but 7 were given
+
+CAUSA:
+- O código antigo chamava o worker passando 7 argumentos (CPF, red flags, despesas, etc).
+- O NOVO MODELO OFFLINE-FIRST exige APENAS 3 argumentos:
+  - id_politico
+  - nome_politico
+  - cpf
+- Todo o restante DEVE ser buscado diretamente no banco de grafos Neo4j.
+
+AÇÃO OBRIGATÓRIA NO backend/main.py:
+
+1️⃣ CORRIGIR A FUNÇÃO DO WORKER
+
+Localize aproximadamente a linha 125.
+Substitua COMPLETAMENTE a função disparar_worker_assincrono por:
+
+def disparar_worker_assincrono(id_politico: int, nome_politico: str, cpf: str):
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(
+            auditar_malha_fina_assincrona(id_politico, nome_politico, cpf)
+        )
+    except Exception as e:
+        print(f"Erro Worker: {e}")
+    finally:
+        try:
+            loop.close()
+        except:
+            pass
+
+IMPORTANTE:
+- NÃO enviar mais que 3 argumentos.
+- Qualquer tentativa de enviar dados adicionais é ERRO DE ARQUITETURA.
+
+2️⃣ CORRIGIR A CHAMADA DO BACKGROUND TASK
+
+Localize aproximadamente a linha 265.
+Substitua a chamada por:
+
+background_tasks.add_task(
+    disparar_worker_assincrono,
+    id,
+    nome_completo,
+    cpf_oculto
+)
+
+────────────────────────────────────────
+ATIVAÇÃO DOS LINKS CLICÁVEIS NA IA
+────────────────────────────────────────
+
+REQUISITO FUNCIONAL CRÍTICO:
+O usuário exige que:
+"cada divergência, possível fraude ou irregularidade exibida pela IA seja totalmente clicável e leve diretamente à fonte oficial do governo."
+
+STATUS DO FRONTEND:
+- O frontend JÁ SUPORTA ISSO.
+- Existe uma seção chamada "Parecer do Fiscal IA".
+- Existe um botão "Executar Varredura Profunda".
+- O conteúdo é renderizado via Markdown.
+- Portanto, NÃO É PROBLEMA DE FRONTEND.
+
+O PROBLEMA ESTÁ NO CÉREBRO DA IA (PROMPT).
+
+AÇÃO OBRIGATÓRIA NO backend/motor_ia_qwen.py (ou equivalente):
+
+Você DEVE definir ou atualizar o SYSTEM PROMPT da IA com a seguinte REGRA ABSOLUTAMENTE ESTRITA:
+
+────────────────────────────────────────
+SYSTEM PROMPT OBRIGATÓRIO DA IA
+────────────────────────────────────────
+
+Você é um Auditor Investigativo Governamental.
+
+REGRA INQUEBRÁVEL:
+Ao descrever QUALQUER divergência, irregularidade, indício de corrupção, red flag ou anomalia:
+- Você OBRIGATORIAMENTE DEVE apresentar a evidência com UM LINK EM MARKDOWN.
+- O link DEVE apontar para a FONTE OFICIAL DO GOVERNO.
+- Exemplos de fontes válidas:
+  - Portal da Transparência
+  - PNCP
+  - Receita Federal
+  - TSE
+  - Tribunal de Contas
+- NUNCA descreva uma fraude sem o link.
+
+FORMATO OBRIGATÓRIO:
+[Texto descritivo do documento ou evidência](URL_OFICIAL)
+
+EXEMPLO OBRIGATÓRIO:
+"Detectamos uma anomalia em um contrato de alto valor firmado com a empresa XYZ.
+[Visualizar Contrato Original no PNCP](https://pncp.gov.br/app/editais/123456789)"
+
+REGRAS ADICIONAIS:
+- Use EXCLUSIVAMENTE Markdown para os links.
+- Se o JSON contiver campos como "fonte", "url", "link" ou "documento", eles DEVEM ser usados.
+- Se NÃO houver link oficial, a divergência NÃO DEVE ser citada.
+- Nunca faça acusações sem evidência verificável.
+
+────────────────────────────────────────
+RESULTADO ESPERADO
+────────────────────────────────────────
+
+Após TODAS essas correções:
+
+- O backend NÃO deve mais travar ao abrir perfis de políticos.
+- O worker assíncrono deve funcionar corretamente.
+- A IA deve consultar o grafo Neo4j.
+- A IA deve gerar um laudo investigativo estruturado.
+- CADA fraude, divergência ou alerta aparecerá como LINK CLICÁVEL.
+- Ao clicar, o usuário será redirecionado diretamente ao site ou PDF oficial do governo.
+- O sistema passa a funcionar como uma FERRAMENTA REAL DE AUDITORIA INVESTIGATIVA.
+
+Esse comportamento NÃO é opcional.
+Essas regras NÃO podem ser relaxadas.
+
+
+
+
+AMBIENTE: Google Project IDX com agente Antigravity ativado.
+
+REGRAS ESPECÍFICAS PARA ANTIGRAVITY:
+
+1) NÃO QUEBRAR ARQUITETURA OFFLINE-FIRST
+- Nenhuma função deve voltar a receber grandes payloads.
+- O agente de auditoria deve SEMPRE buscar dados do Neo4j.
+- main.py nunca deve enviar mais que 3 argumentos ao worker.
+
+2) GARANTIR CONSISTÊNCIA ASSÍNCRONA
+- Todas as funções que acessam banco ou IA devem ser async.
+- Nunca misturar funções sync dentro de fluxo async.
+- Sempre usar await corretamente.
+- Nunca bloquear event loop com operações síncronas pesadas.
+
+3) PROTEGER IMPORTS
+- Verificar automaticamente se todo módulo usado está importado.
+- Se uma classe é utilizada, confirmar que está declarada ou importada.
+- Falha de import deve ser tratada antes de finalizar a resposta.
+
+4) CRIAR VALIDAÇÃO AUTOMÁTICA
+Adicionar validações:
+- Se auditar_malha_fina_assincrona receber mais de 3 argumentos → lançar erro claro.
+- Se IA gerar divergência sem link Markdown → rejeitar saída e regenerar.
+
+5) GARANTIR PADRÃO DE LINK INVESTIGATIVO
+
+TODO alerta deve seguir este padrão:
+
+### 🔴 Tipo da Divergência
+Descrição técnica da inconsistência.
+
+📎 Evidência Oficial:
+[Nome do Documento no Órgão Oficial](https://link.oficial.gov.br)
+
+Nenhuma divergência pode existir sem a seção "📎 Evidência Oficial".
+
+6) NÃO CRIAR DADOS FICTÍCIOS
+- Nunca inventar URL.
+- Nunca simular PDF.
+- Só usar links que existam no banco ou no JSON retornado.
+
+7) LOGGING PROFISSIONAL
+Adicionar logging estruturado:
+
+logging.info("Iniciando auditoria do político ID=%s CPF=%s", id, cpf)
+logging.error("Falha no worker: %s", e)
+
+Nunca usar apenas print().
+
+8) CRIAR TESTE AUTOMÁTICO
+
+Gerar teste pytest que valide:
+
+- Worker aceita 3 argumentos.
+- Função retorna laudo contendo pelo menos 1 link Markdown.
+- Regex obrigatória para link:
+  r"\[.*?\]\(https?://.*?\)"
+
+9) DOCUMENTAR FUNÇÕES
+Toda função deve ter docstring padrão:
+
+"""
+Executa auditoria profunda consultando banco Neo4j
+Args:
+    id_politico (int)
+    nome_politico (str)
+    cpf (str)
+Returns:
+    str: Laudo investigativo em Markdown
+"""
+
+10) NÃO ALTERAR FRONTEND
+O ReactMarkdown já está funcionando.
+Qualquer ajuste deve ser feito exclusivamente no backend.
 
 A IA não “vai à internet sozinha” nem invade sistemas.
 Ela opera sobre:

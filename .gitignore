@@ -1,17 +1,64 @@
-# Ambientes
-.env
+# ─── DADOS BRUTOS (Downloads do governo — podem ser gigabytes) ────────────────
+backend/dados_brutos_*/
+backend/dados_brutos_*/**
+
+# ─── LOGS DE COLETA ──────────────────────────────────────────────────────────
+backend/coleta_*.log
+*.log
+
+# ─── AMBIENTES VIRTUAIS PYTHON ───────────────────────────────────────────────
 venv/
-backend/venv/
+.venv/
+env/
 __pycache__/
-
-# Node
-node_modules/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
 dist/
-.next/
+build/
+.eggs/
 
-# SO
+# ─── VARIÁVEIS DE AMBIENTE ───────────────────────────────────────────────────
+.env
+.env.local
+.env.production
+.env.*.local
+
+# ─── NODE / NEXT.JS ──────────────────────────────────────────────────────────
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+*.tsbuildinfo
+.npm
+
+# ─── SISTEMA OPERACIONAL ─────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
-backend/credentials.json
-backend/token.json
+Desktop.ini
+
+# ─── IDEs ────────────────────────────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# ─── ARQUIVOS TEMPORÁRIOS / CACHE ────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig
+.cache/
+tmp/
+
+# ─── DOSSIÊS GERADOS PELA IA (dados sensíveis, não versionar) ────────────────
+dossies/
 backend/dossies/
+
+# ─── PASTA REFERÊNCIA (imagens locais, não precisam ir pro git) ──────────────
+referencia/
+# OAuth Google
+credentials.json
+token.json
+*.pem
+*.key

@@ -8,6 +8,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, ShieldAlert, Activity, User, ShieldCheck, MapPin, Target, ChevronRight, Navigation
 } from "lucide-react";
+import dynamic from 'next/dynamic';
+const QuadroInvestigacao = dynamic(() => import('@/components/QuadroInvestigacao'), { ssr: false });
 
 // OBSERVAÇÃO AO ARQUITETO/DEV:
 // O GitHub bloqueou o Push anterior devido à detecção de secret (Secret Scanning).
@@ -42,6 +44,8 @@ const gerarCidadesProximas = (uLat: number, uLng: number) => {
 export default function Home() {
   const router = useRouter();
   const mapRef = useRef<MapRef>(null);
+
+  const [isDossieAberto, setIsDossieAberto] = useState(false);
 
   // Estados do Mapa
   const [viewState, setViewState] = useState<ViewState>({
@@ -120,7 +124,20 @@ export default function Home() {
     setCidadeSelecionada("Buscando alvo...");
 
     try {
+      if (!MAPBOX_TOKEN || MAPBOX_TOKEN.includes("COLE_SUA_CHAVE")) {
+        // Fallback MOCK se não houver Token Real para liberar a Gamificação do Usuário
+        setTimeout(() => voarParaCidade(lat, lng, "Cidade Não Mapeada (Simulação)", "SP"), 600);
+        return;
+      }
+
       const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=place,region&country=br&access_token=${MAPBOX_TOKEN}`);
+
+      if (!res.ok) {
+        // Token recusado
+        setTimeout(() => voarParaCidade(lat, lng, "São Paulo", "SP"), 500);
+        return;
+      }
+
       const data = await res.json();
 
       if (data.features && data.features.length > 0) {
@@ -128,7 +145,29 @@ export default function Home() {
         const nomeCidade = place.text;
         const [centerLng, centerLat] = place.center;
 
-        voarParaCidade(centerLat, centerLng, nomeCidade);
+        // Extrai a UF do contexto do Mapbox (ex: region.short_code = "BR-SP" → "SP")
+        let uf = "BR";
+        const contextos: any[] = place.context || [];
+        const regionCtx = contextos.find((c: any) =>
+          c.id?.startsWith("region") || c.place_type?.includes("region")
+        );
+        if (regionCtx?.short_code) {
+          uf = regionCtx.short_code.replace("BR-", "").toUpperCase(); // "BR-SP" → "SP"
+        } else if (regionCtx?.text) {
+          const mapaUF: Record<string, string> = {
+            "Acre": "AC", "Alagoas": "AL", "Amapá": "AP", "Amazonas": "AM", "Bahia": "BA",
+            "Ceará": "CE", "Espírito Santo": "ES", "Goiás": "GO", "Maranhão": "MA",
+            "Mato Grosso": "MT", "Mato Grosso do Sul": "MS", "Minas Gerais": "MG",
+            "Pará": "PA", "Paraíba": "PB", "Paraná": "PR", "Pernambuco": "PE",
+            "Piauí": "PI", "Rio de Janeiro": "RJ", "Rio Grande do Norte": "RN",
+            "Rio Grande do Sul": "RS", "Rondônia": "RO", "Roraima": "RR",
+            "Santa Catarina": "SC", "São Paulo": "SP", "Sergipe": "SE",
+            "Tocantins": "TO", "Distrito Federal": "DF"
+          };
+          uf = mapaUF[regionCtx.text] ?? "BR";
+        }
+
+        voarParaCidade(centerLat, centerLng, nomeCidade, uf);
       } else {
         setCidadeSelecionada("Alvo Indeterminado");
         setPoliticosLocais([]);
@@ -136,13 +175,13 @@ export default function Home() {
       }
     } catch (err) {
       console.error("Erro ao resolver alvo no mapa:", err);
-      setCidadeSelecionada("Sinal Perdido");
-      setLoading(false);
+      // Fallback pra não parar a navegação do user
+      voarParaCidade(lat, lng, "Capital Desconhecida", "BR");
     }
   };
 
   // Ação Principal: Voar para a Cidade e Abrir Painel Direito
-  const voarParaCidade = async (lat: number, lng: number, nomeCidade: string) => {
+  const voarParaCidade = async (lat: number, lng: number, nomeCidade: string, uf: string = "BR") => {
     if (mapRef.current) {
       // Efeito cinematográfico: zoom in profundo com inclinação (pitch)
       mapRef.current.flyTo({
@@ -161,7 +200,10 @@ export default function Home() {
     setCidadeAnimacao3D(null); // Reseta animação anterior
 
     try {
-      const res = await fetch(`http://localhost:8000/api/politicos/cidade/${encodeURIComponent(nomeCidade)}`);
+      // Rota corrigida: filtra APENAS PREFEITO + VEREADOR do município
+      const url = `http://localhost:8000/api/politicos/cidade/${encodeURIComponent(uf)}/${encodeURIComponent(nomeCidade)}`;
+      console.log(`[CIDADE] GET ${url}`);
+      const res = await fetch(url);
       const data = await res.json();
       if (data.status === "sucesso") {
         // Ordena por Score (decrescente: maiores scores = mais influentes/perigosos)
@@ -174,6 +216,10 @@ export default function Home() {
             lat, lng, top3: sorted.slice(0, 3)
           });
         }
+      } else if (data.status === "sem_dados") {
+        // TSE offline ou município sem dados cadastrais
+        console.warn(`[CIDADE] ${data.mensagem ?? "Sem dados municipais disponíveis."}`);
+        setPoliticosLocais([]);
       } else {
         setPoliticosLocais([]);
       }
@@ -260,7 +306,7 @@ export default function Home() {
                     // Passa pra ação de click global que ela resolve o reverse geo e abre o menu
                     handleMapClick({ defaultPrevented: false, lngLat: { lng: cidade.lng, lat: cidade.lat } });
                   } else {
-                    voarParaCidade(cidade.lat, cidade.lng, cidade.nome);
+                    voarParaCidade(cidade.lat, cidade.lng, cidade.nome, cidade.uf ?? "BR");
                   }
                 }}
               >
@@ -352,31 +398,48 @@ export default function Home() {
       <div className="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between">
 
         {/* TOPO: BARRA DE BUSCA E BRANDING */}
-        <div className="w-full p-6 flex justify-between items-start pointer-events-auto">
+        <div className="w-full p-6 flex flex-col md:flex-row justify-between items-start md:items-center pointer-events-auto gap-4 bg-gradient-to-b from-black/80 to-transparent">
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center">
-                <Target className="w-5 h-5 text-emerald-500" />
+              <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center">
+                <Target className="w-6 h-6 text-purple-500" />
               </div>
-              <h1 className="text-2xl font-black tracking-tight text-white uppercase">
-                Trasparente<span className="text-emerald-500">.</span>
+              <h1 className="text-3xl font-black tracking-tight text-white uppercase drop-shadow-lg">
+                Trasparente<span className="text-purple-500">.</span>
               </h1>
             </div>
-            <span className="text-[10px] text-neutral-400 font-mono tracking-widest uppercase ml-10">GovTech Sistema de Auditoria</span>
+            <span className="text-[11px] text-neutral-300 font-mono tracking-widest uppercase ml-12">Plataforma Cívica de Auditoria e Grafos</span>
           </div>
 
-          <form onSubmit={realizarBusca} className="flex relative w-full max-w-md">
-            <input
-              type="text"
-              placeholder="Buscar político ou CPF/CNPJ..."
-              className="w-full bg-black/60 backdrop-blur-md border border-neutral-800 text-white px-5 py-3 rounded-full text-sm outline-none focus:border-purple-500 transition-colors shadow-2xl placeholder-neutral-600"
-              value={buscaNome}
-              onChange={(e) => setBuscaNome(e.target.value)}
-            />
-            <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 bg-purple-600 hover:bg-purple-500 w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-[0_0_10px_rgba(168,85,247,0.4)]">
-              <Search className="w-4 h-4 text-white" />
+          <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto items-center">
+            <form onSubmit={realizarBusca} className="flex relative w-full md:w-80">
+              <input
+                type="text"
+                placeholder="Buscar político ou ID..."
+                className="w-full bg-black/60 backdrop-blur-md border border-purple-900/50 text-white px-5 py-3 rounded-full text-sm outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all shadow-2xl placeholder-neutral-500"
+                value={buscaNome}
+                onChange={(e) => setBuscaNome(e.target.value)}
+              />
+              <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 bg-purple-600 hover:bg-purple-500 w-8 h-8 rounded-full flex items-center justify-center transition-transform hover:scale-105 shadow-[0_0_15px_rgba(168,85,247,0.5)]">
+                <Search className="w-4 h-4 text-white" />
+              </button>
+            </form>
+
+            {/* BOTÃO PRINCIPAL EXPLÍCITO */}
+            <button
+              onClick={() => setCidadeSelecionada("Brasilia")}
+              className="bg-white text-black font-black uppercase text-sm px-6 py-3 rounded-full shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:bg-neutral-200 transition-all transform hover:-translate-y-1"
+            >
+              Explorar Painel Presidencial
             </button>
-          </form>
+
+            <button
+              onClick={() => handleMapClick({ defaultPrevented: false, lngLat: { lng: -47.88216, lat: -15.79422 } })} // Mock clique BSB
+              className="bg-purple-600 text-white font-bold uppercase text-[11px] px-6 py-3 rounded-full shadow-[0_0_20px_rgba(168,85,247,0.4)] hover:bg-purple-500 transition-all transform hover:-translate-y-1 flex items-center gap-2 tracking-widest"
+            >
+              <Search className="w-4 h-4" /> Buscar Dados na Força
+            </button>
+          </div>
         </div>
 
         {/* ÁREA CENTRAL LATERAL (Painéis) */}
@@ -519,8 +582,21 @@ export default function Home() {
             )}
           </AnimatePresence>
 
+          {/* BOTÃO FLUTUANTE DO QUADRO DE INVESTIGAÇÃO */}
+          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
+            <button
+              onClick={() => setIsDossieAberto(true)}
+              className="bg-red-900/80 border border-red-500 text-red-100 font-black uppercase text-sm px-8 py-3 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.6)] hover:bg-red-800 transition-all transform hover:-translate-y-1"
+            >
+              Abrir Quadro de Investigação
+            </button>
+          </div>
+
         </div>
       </div>
+
+      {/* RENDERIZA O QUADRO SE O BOTÃO FOR CLICADO */}
+      {isDossieAberto && <QuadroInvestigacao onClose={() => setIsDossieAberto(false)} />}
 
       <style jsx global>{`
                 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
