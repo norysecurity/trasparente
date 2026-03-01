@@ -167,6 +167,9 @@ def avaliar_score_inicial_sincrono(nome_politico: str) -> tuple[int, list, list]
             
     return pontos_perdidos, red_flags, motivos
 
+async def avaliar_score_inicial_assincrono(nome_politico: str, cpf_real: str = None, despesas_para_analise: list = None, dados_completos: dict = None, projetos: list = None) -> tuple[int, list, list]:
+    return await asyncio.to_thread(avaliar_score_inicial_sincrono, nome_politico)
+
 async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cpf_real: str | None = None, cnpjs_fornecedores: list | None = None, red_flags_iniciais: list | None = None, pontos_perdidos_iniciais: int = 0, despesas_para_analise: list | None = None):
     print(f"\n🚀 INICIANDO AUDITORIA GOVTECH MULTI-API: {nome_politico.upper()}")
     pontos_perdidos = pontos_perdidos_iniciais

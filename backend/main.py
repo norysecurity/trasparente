@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from duckduckgo_search import DDGS
 
-from agente_coletor_autonomo import avaliar_score_inicial_sincrono, auditar_malha_fina_assincrona
+from agente_coletor_autonomo import avaliar_score_inicial_sincrono, auditar_malha_fina_assincrona, avaliar_score_inicial_assincrono
 
 app = FastAPI(title="GovTech Transparência API")
 
