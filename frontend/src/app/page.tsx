@@ -16,14 +16,28 @@ import {
 // NEXT_PUBLIC_MAPBOX_TOKEN=pk.eyJ1Ij...
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || "COLE_SUA_CHAVE_PK_AQUI_SE_FOR_RODAR_LOCAL_SEM_ENV";
 
-// Cidades Estratégicas Mockadas para Mapeamento do Radar
-const CIDADES_RADAR = [
-  { nome: "Brasília", lat: -15.8267, lng: -47.9218, tipo: "Centro de Poder" },
-  { nome: "Belo Horizonte", lat: -19.9167, lng: -43.9345, tipo: "Foco Estadual" },
-  { nome: "Santa Luzia", lat: -19.7694, lng: -43.8514, tipo: "Investigação" },
-  { nome: "São Paulo", lat: -23.5505, lng: -46.6333, tipo: "Centro Financeiro" },
-  { nome: "Rio de Janeiro", lat: -22.9068, lng: -43.1729, tipo: "Foco Regional" }
+// Cidades Estratégicas Base
+const CIDADES_RADAR_FIXAS = [
+  { nome: "Brasília", lat: -15.8267, lng: -47.9218, tipo: "Centro de Poder Supremo" }
 ];
+
+// Gerador Procedural Simples de Cidades "Vizinhas" baseadas em uma coordenada Real
+const gerarCidadesProximas = (uLat: number, uLng: number) => {
+  // Gera 4 bolinhas espalhadas em um raio de ~30 a 100km
+  const offsets = [
+    { dLat: 0.15, dLng: 0.2, tipo: "Foco Regional" },
+    { dLat: -0.2, dLng: -0.1, tipo: "Malha Fina" },
+    { dLat: 0.3, dLng: -0.25, tipo: "Investigação" },
+    { dLat: -0.1, dLng: 0.35, tipo: "Suspeita Ativa" }
+  ];
+
+  return offsets.map((off, idx) => ({
+    nome: `Alvo Prox #${idx + 1}`, // Nome genérico até o usuário clicar
+    lat: uLat + off.dLat,
+    lng: uLng + off.dLng,
+    tipo: off.tipo
+  }));
+};
 
 export default function Home() {
   const router = useRouter();
@@ -39,8 +53,9 @@ export default function Home() {
     padding: { top: 0, bottom: 0, left: 0, right: 0 }
   });
 
-  // Estado para Localização do Usuário Real
+  // Estado para Localização do Usuário Real e Bolinhas Dinâmicas
   const [userLocation, setUserLocation] = useState<{ lat: number, lng: number } | null>(null);
+  const [cidadesDinamicas, setCidadesDinamicas] = useState<any[]>([]);
 
   // Estados da Interface e Dados
   const [loading, setLoading] = useState(false);
@@ -71,6 +86,7 @@ export default function Home() {
           const uLat = position.coords.latitude;
           const uLng = position.coords.longitude;
           setUserLocation({ lat: uLat, lng: uLng });
+          setCidadesDinamicas(gerarCidadesProximas(uLat, uLng));
 
           // Opcional: Animar a câmera para a localização do usuário ao entrar
           if (mapRef.current) {
@@ -84,6 +100,7 @@ export default function Home() {
         },
         (error) => {
           console.warn("Geolocalização negada ou falhou:", error);
+          // Fallback: Mostrar só Brasilia se a pessoa negar GPS. Não precisa fazer nada extra, cidadesDinamicas = []
         }
       );
     }
@@ -199,28 +216,60 @@ export default function Home() {
             </Marker>
           )}
 
-          {/* Marcadores Luminosos (Radar Nodes) */}
-          {CIDADES_RADAR.map((cidade, idx) => (
+          {/* Marcadores Luminosos (Radar Nodes Fixos & Dinâmicos) */}
+          {[...CIDADES_RADAR_FIXAS, ...cidadesDinamicas].map((cidade, idx) => (
             <Marker key={idx} longitude={cidade.lng} latitude={cidade.lat} anchor="center">
               <div
-                className="relative flex items-center justify-center p-2 group cursor-pointer"
+                className="relative flex flex-col items-center justify-center group cursor-pointer"
                 onClick={(e) => {
                   e.stopPropagation();
-                  voarParaCidade(cidade.lat, cidade.lng, cidade.nome);
+                  // Para cidades estáticas do radar, nós forçamos o nome. Pra clicks livres passamos o nome da Reverse API.
+                  // Aqui no radar, se for "Alvo Prox", fazemos um fetch rápido de geocoding pra descobrir o nome verdadeiro
+                  if (cidade.nome.startsWith("Alvo Prox")) {
+                    // Passa pra ação de click global que ela resolve o reverse geo e abre o menu
+                    handleMapClick({ defaultPrevented: false, lngLat: { lng: cidade.lng, lat: cidade.lat } });
+                  } else {
+                    voarParaCidade(cidade.lat, cidade.lng, cidade.nome);
+                  }
                 }}
               >
-                {/* Efeito de Pulso Cyberpunk */}
-                <div className="absolute inset-0 bg-purple-500 rounded-full animate-ping opacity-75"></div>
-                <div className="relative w-4 h-4 bg-purple-600 border-2 border-white rounded-full shadow-[0_0_15px_rgba(168,85,247,0.8)] z-10"></div>
 
-                {/* Tooltip Flutuante */}
-                <div className="absolute bottom-full mb-2 hidden group-hover:block bg-black/80 backdrop-blur-md border border-purple-500/40 px-3 py-1.5 rounded-lg whitespace-nowrap z-20 shadow-xl pointer-events-none">
-                  <p className="text-xs font-bold text-white uppercase tracking-wider">{cidade.nome}</p>
+                {/* Etiqueta 3D Flutuante Permanente Acima da Bolinha Roxa */}
+                {(cidade.nome && !cidade.nome.startsWith("Alvo Prox")) && (
+                  <div className="absolute bottom-6 font-black text-xl tracking-tight text-white uppercase drop-shadow-[0_4px_4px_rgba(0,0,0,1)] pointer-events-none whitespace-nowrap opacity-60 group-hover:opacity-100 transition-opacity">
+                    {cidade.nome}
+                  </div>
+                )}
+
+                {/* Nome de Cidades Clicadas Livres (Nome Dinâmico da API que jogamos no Tooltip) */}
+                {cidadeSelecionada && cidade.nome.startsWith("Alvo Prox") && cidadeSelecionada !== "Buscando alvo..." && cidadeSelecionada !== "Alvo Indeterminado" && (
+                  // Esse bloco serve mais se a lista mapeasse itens livre; como "cidade.nome" dos nós visuais não repassa cidadeSelecionada local, o relevo baseia-se na const ativa local abaixo
+                  null
+                )}
+
+                <div className="relative flex items-center justify-center p-2">
+                  {/* Bolinha Roxa Fixa */}
+                  <div className="absolute inset-0 bg-purple-500 rounded-full animate-ping opacity-75"></div>
+                  <div className="relative w-4 h-4 bg-purple-600 border-2 border-white rounded-full shadow-[0_0_15px_rgba(168,85,247,0.8)] z-10"></div>
+                </div>
+
+                {/* Tooltip Hover Redondezas */}
+                <div className="absolute -bottom-8 hidden group-hover:flex bg-black/80 backdrop-blur-md border border-purple-500/40 px-2 py-1 rounded-lg whitespace-nowrap z-20 shadow-xl pointer-events-none">
                   <p className="text-[9px] text-purple-400 font-mono tracking-widest">{cidade.tipo}</p>
                 </div>
               </div>
             </Marker>
           ))}
+
+          {/* Rótulo 3D Dinâmico para Cidades Selecionadas via Clique Livre */}
+          {cidadeSelecionada && cidadeSelecionada !== "Buscando alvo..." && cidadeSelecionada !== "Alvo Indeterminado" && mapRef.current && (
+            // Vamos reaproveitar a posição central do mapa para mostrar o título 3D grandão
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[15vh] pointer-events-none z-0">
+              <h2 className="text-6xl md:text-8xl font-black text-white/5 uppercase blur-[1px] tracking-tighter" style={{ WebkitTextStroke: '2px rgba(255,255,255,0.2)' }}>
+                {cidadeSelecionada}
+              </h2>
+            </div>
+          )}
         </Map>
       </div>
 
