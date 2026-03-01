@@ -223,26 +223,7 @@ def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
 
     except Exception as e: raise HTTPException(status_code=500, detail="Erro interno ao buscar político")
 
-@app.get("/api/dashboard/guerra")
-def dashboard_guerra():
-    """Retorna os dados pro FEED de corrupção simulando o motor OSINT"""
-    return {
-        "status": "sucesso",
-        "alertas_recentes": [
-            {"id": 1, "mensagem": "Licitação suspeita encontrada em MG", "urgencia": "ALTA", "tempo": "Há 10 min"},
-            {"id": 2, "mensagem": "Movimentação atípica no CPF de Senador X", "urgencia": "MÉDIA", "tempo": "Há 45 min"},
-            {"id": 3, "mensagem": "Cruzamento de CNPJs aponta Laranja em SP", "urgencia": "ALTA", "tempo": "Há 1 hora"},
-            {"id": 4, "mensagem": "Nova Red Flag: Processo Ambiental Ativo", "urgencia": "MÉDIA", "tempo": "Há 2 horas"},
-            {"id": 5, "mensagem": "Alerta de Voo Privado sem registro na FAB", "urgencia": "BAIXA", "tempo": "Há 5 horas"}
-        ],
-        "top_risco": [
-            {"nome": "Deputado A", "score": 210},
-            {"nome": "Senador B", "score": 250},
-            {"nome": "Assessor C", "score": 280},
-            {"nome": "Ex-Ministro D", "score": 310},
-            {"nome": "Prefeito E", "score": 340}
-        ]
-    }
+
 
     caminho_dossie = f"dossies/dossie_{id}.json"
     historico_redflags, empresas_geradas, score_base, pontos_perdidos, motivos_detalhados = [], [], 1000, 0, []

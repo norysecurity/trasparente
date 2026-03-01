@@ -34,8 +34,11 @@ export default function PoliticoPerfil() {
         fetch(`http://localhost:8000/api/politico/detalhes/${idPolitico}`)
             .then(res => res.json())
             .then(data => {
-                if (data.status === "sucesso") {
+                if (data && data.status === "sucesso") {
                     setPoliticoData(data.dados);
+                } else {
+                    console.error("API Error or Empty Data:", data);
+                    setPoliticoData(null); // Or keep loading state/show error message
                 }
             })
             .catch(err => console.error("Erro ao buscar dossiê ID:", err))
