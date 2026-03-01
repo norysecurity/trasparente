@@ -62,6 +62,36 @@ export default function Home() {
       .catch(err => console.error("Erro ao carregar Dashboard:", err));
   }, []);
 
+  // Ação de Clique Dinâmico no Mapa (Qualquer Cidade do Brasil)
+  const handleMapClick = async (evt: any) => {
+    if (evt.defaultPrevented) return;
+
+    const { lng, lat } = evt.lngLat;
+    setLoading(true);
+    setCidadeSelecionada("Buscando alvo...");
+
+    try {
+      const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=place,region&country=br&access_token=${MAPBOX_TOKEN}`);
+      const data = await res.json();
+
+      if (data.features && data.features.length > 0) {
+        const place = data.features[0];
+        const nomeCidade = place.text;
+        const [centerLng, centerLat] = place.center;
+
+        voarParaCidade(centerLat, centerLng, nomeCidade);
+      } else {
+        setCidadeSelecionada("Alvo Indeterminado");
+        setPoliticosLocais([]);
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error("Erro ao resolver alvo no mapa:", err);
+      setCidadeSelecionada("Sinal Perdido");
+      setLoading(false);
+    }
+  };
+
   // Ação Principal: Voar para a Cidade e Abrir Painel Direito
   const voarParaCidade = async (lat: number, lng: number, nomeCidade: string) => {
     if (mapRef.current) {
@@ -113,6 +143,7 @@ export default function Home() {
           ref={mapRef}
           {...viewState}
           onMove={evt => setViewState(evt.viewState)}
+          onClick={handleMapClick}
           mapStyle="mapbox://styles/mapbox/dark-v11"
           mapboxAccessToken={MAPBOX_TOKEN}
           terrain={{ source: 'mapbox-dem', exaggeration: 1.5 }}
@@ -123,7 +154,10 @@ export default function Home() {
             <Marker key={idx} longitude={cidade.lng} latitude={cidade.lat} anchor="center">
               <div
                 className="relative flex items-center justify-center p-2 group cursor-pointer"
-                onClick={() => voarParaCidade(cidade.lat, cidade.lng, cidade.nome)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  voarParaCidade(cidade.lat, cidade.lng, cidade.nome);
+                }}
               >
                 {/* Efeito de Pulso Cyberpunk */}
                 <div className="absolute inset-0 bg-purple-500 rounded-full animate-ping opacity-75"></div>
