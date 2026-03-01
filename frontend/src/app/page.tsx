@@ -62,6 +62,11 @@ export default function Home() {
   const [buscaNome, setBuscaNome] = useState("");
   const [cidadeSelecionada, setCidadeSelecionada] = useState("");
   const [politicosLocais, setPoliticosLocais] = useState<any[]>([]);
+  const [politicosEstado, setPoliticosEstado] = useState<any[]>([]);
+  const [abaAtiva, setAbaAtiva] = useState<"cidade" | "estado">("cidade");
+
+  // Novo estado para controlar a Animação 3D do Top 3
+  const [cidadeAnimacao3D, setCidadeAnimacao3D] = useState<{ lat: number, lng: number, top3: any[] } | null>(null);
 
   // Estados do Dashboard Lateral (Esquerdo)
   const [feedGuerra, setFeedGuerra] = useState<any[]>([]);
@@ -152,14 +157,23 @@ export default function Home() {
 
     setCidadeSelecionada(nomeCidade);
     setLoading(true);
+    setAbaAtiva("cidade");
+    setCidadeAnimacao3D(null); // Reseta animação anterior
 
     try {
       const res = await fetch(`http://localhost:8000/api/politicos/cidade/${encodeURIComponent(nomeCidade)}`);
       const data = await res.json();
       if (data.status === "sucesso") {
-        // Ordena por Score, piores primeiro (score menor é pior? ou maior é pior? Vamos assumir que Score menor é pior Serasa style, então ordem decrescente de perigo ou crescente de score. Vamos ordenar decrescente pelo score simulado)
+        // Ordena por Score (decrescente: maiores scores = mais influentes/perigosos)
         const sorted = (data.politicos || []).sort((a: any, b: any) => b.score_auditoria - a.score_auditoria);
         setPoliticosLocais(sorted);
+
+        // Dispara a animação 3D se houver dados
+        if (sorted.length > 0) {
+          setCidadeAnimacao3D({
+            lat, lng, top3: sorted.slice(0, 3)
+          });
+        }
       } else {
         setPoliticosLocais([]);
       }
@@ -170,6 +184,23 @@ export default function Home() {
       setLoading(false);
     }
   };
+
+  // Carrega Políticos do Estado quando aba for trocada para 'Estado'
+  useEffect(() => {
+    if (abaAtiva === "estado" && politicosEstado.length === 0) {
+      setLoading(true);
+      // Usamos uma mock call ou rota que retorna toda a base (nesse DB atual, a cidade define muito, mas puxamos de MG como proxy se for o caso, ou todos)
+      // Como o backend simplificado tem /top ou /cidade, vamos simular que estamos puxando do Estado filtrando no frontend ou buscando na malhafina
+      fetch("http://localhost:8000/api/dashboard/guerra")
+        .then(res => res.json())
+        .then(data => {
+          // Reaproveita o top_risco global simulando a base "Estadual" para fins de MVP visual
+          setPoliticosEstado(data.top_risco || []);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    }
+  }, [abaAtiva]);
 
   // Ação de Busca Rápida (Topo)
   const realizarBusca = async (e?: React.FormEvent) => {
@@ -250,6 +281,46 @@ export default function Home() {
               </div>
             </Marker>
           ))}
+
+          {/* Animação 3D de Barras de Influência Acima da Cidade Selecionada */}
+          {cidadeAnimacao3D && (
+            <Marker longitude={cidadeAnimacao3D.lng} latitude={cidadeAnimacao3D.lat} anchor="bottom">
+              <div className="relative pointer-events-none flex items-end justify-center gap-2 h-64 w-32 pb-4">
+                {cidadeAnimacao3D.top3.map((pol, idx) => {
+                  // Altura baseada na posição (1o lugar é maior, 3o menor)
+                  const hClass = idx === 0 ? "h-56" : idx === 1 ? "h-40" : "h-24";
+                  const delay = idx * 0.2;
+                  return (
+                    <motion.div
+                      key={pol.id || idx}
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "100%", opacity: 1 }}
+                      transition={{ duration: 1.5, ease: "easeOut", delay }}
+                      className={`relative w-4 ${hClass} bg-gradient-to-t from-emerald-500/80 to-emerald-300/20 rounded-t-sm shadow-[0_0_20px_rgba(16,185,129,0.5)] flex flex-col justify-between items-center group overflow-visible`}
+                      style={{
+                        transformStyle: 'preserve-3d',
+                        transform: 'perspective(500px) rotateX(20deg)'
+                      }}
+                    >
+                      {/* Beam Light saindo para o céu */}
+                      <div className="absolute -top-32 w-full h-32 bg-gradient-to-t from-emerald-400/40 to-transparent"></div>
+
+                      {/* Rótulo Flutuante no topo do "Prédio" */}
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: -20 }}
+                        transition={{ delay: delay + 1.2, duration: 0.5 }}
+                        className="absolute -top-12 whitespace-nowrap text-center"
+                      >
+                        <img src={pol.url_foto || `https://ui-avatars.com/api/?name=${pol.nome}&background=random`} className="w-6 h-6 rounded-full border border-emerald-500 shadow-lg mx-auto mb-1 opacity-90 object-cover bg-neutral-800" alt="Avatar" />
+                        <p className="text-[8px] font-mono text-emerald-400 tracking-wider bg-black/80 px-1 rounded backdrop-blur-sm border border-emerald-500/30">{pol.nome.split(" ")[0]}</p>
+                      </motion.div>
+                    </motion.div>
+                  )
+                })}
+              </div>
+            </Marker>
+          )}
 
         </Map>
       </div>
@@ -358,9 +429,25 @@ export default function Home() {
                   </button>
 
                   <h2 className="text-2xl font-black text-white mb-1 pr-8 leading-tight">{cidadeSelecionada}</h2>
-                  <p className="text-[10px] text-emerald-400 font-mono tracking-widest uppercase mb-6 flex items-center gap-1">
+                  <p className="text-[10px] text-emerald-400 font-mono tracking-widest uppercase mb-4 flex items-center gap-1">
                     <Navigation className="w-3 h-3" /> Foco Ativo / Interceptação
                   </p>
+
+                  {/* Sistema de Abas (Tabs) Cidade | Estado */}
+                  <div className="flex w-full mb-6 border-b border-neutral-800">
+                    <button
+                      onClick={() => setAbaAtiva("cidade")}
+                      className={`flex-1 pb-2 text-xs font-bold uppercase tracking-widest transition-colors ${abaAtiva === "cidade" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-neutral-600 hover:text-neutral-400"}`}
+                    >
+                      Cidade
+                    </button>
+                    <button
+                      onClick={() => setAbaAtiva("estado")}
+                      className={`flex-1 pb-2 text-xs font-bold uppercase tracking-widest transition-colors ${abaAtiva === "estado" ? "text-emerald-400 border-b-2 border-emerald-500" : "text-neutral-600 hover:text-neutral-400"}`}
+                    >
+                      Estado
+                    </button>
+                  </div>
 
                   {loading ? (
                     <div className="flex-1 flex flex-col items-center justify-center text-emerald-500 gap-4">
@@ -369,13 +456,13 @@ export default function Home() {
                     </div>
                   ) : (
                     <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
-                      {politicosLocais.map((pol, idx) => (
+                      {(abaAtiva === "cidade" ? politicosLocais : politicosEstado).map((pol, idx) => (
                         <div key={idx} className="bg-black/50 border border-neutral-800 rounded-xl p-4 hover:border-emerald-500/50 transition-colors group">
                           <div className="flex justify-between items-start mb-3">
                             <div>
                               <div className="flex items-center gap-2 mb-1">
-                                <span className={`text-[8px] font-bold uppercase px-2 py-0.5 rounded ${pol.cargo === 'Prefeito' ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : 'bg-neutral-800 text-neutral-400'}`}>
-                                  {pol.cargo}
+                                <span className={`text-[8px] font-bold uppercase px-2 py-0.5 rounded ${pol.cargo && pol.cargo.includes('Prefeito') ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : 'bg-neutral-800 text-neutral-400'}`}>
+                                  {pol.cargo || 'Deputado'}
                                 </span>
                                 <span className="text-[10px] text-neutral-500 font-bold">{pol.partido}</span>
                               </div>
@@ -383,23 +470,23 @@ export default function Home() {
                             </div>
                             <div className="flex flex-col items-end">
                               <span className="text-[10px] uppercase text-neutral-500 font-mono tracking-tighter">Score</span>
-                              <span className={`text-sm font-black font-mono ${pol.score_auditoria > 600 ? 'text-emerald-500' : 'text-red-500'}`}>
-                                {pol.score_auditoria}
+                              <span className={`text-sm font-black font-mono ${(pol.score_auditoria || pol.score) > 600 ? 'text-emerald-500' : 'text-red-500'}`}>
+                                {pol.score_auditoria || pol.score || 0}
                               </span>
                             </div>
                           </div>
                           <button
-                            onClick={() => router.push(`/politico/${pol.id}`)}
+                            onClick={() => router.push(`/politico/${pol.id || pol.nome}`)}
                             className="w-full py-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center justify-center gap-1 transition-colors"
                           >
                             Abrir Dossiê <ChevronRight className="w-3 h-3" />
                           </button>
                         </div>
                       ))}
-                      {politicosLocais.length === 0 && (
+                      {(abaAtiva === "cidade" ? politicosLocais : politicosEstado).length === 0 && (
                         <div className="text-center p-6 border border-dashed border-neutral-800 rounded-xl text-neutral-500">
                           <ShieldCheck className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                          <p className="text-xs uppercase font-bold text-neutral-600">Nenhum dado suspeito reportado.</p>
+                          <p className="text-xs uppercase font-bold text-neutral-600">Nenhum dado suspeito na {abaAtiva}.</p>
                         </div>
                       )}
                     </div>
