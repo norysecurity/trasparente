@@ -143,8 +143,8 @@ def injetar_candidatos_tse(neo4j: Neo4jConnection, ano: int, pasta_dados: Path):
                         "id_tse":    str(sq_candidato).strip(),
                     })
 
-                    # Injeção em lote a cada 500 registros
-                    if len(batch) >= 500:
+                    # Injeção em lote a cada 1000 registros
+                    if len(batch) >= 1000:
                         n = _batch_merge_politicos(neo4j, batch)
                         total_inseridos += n
                         batch = []
@@ -198,11 +198,24 @@ def _batch_merge_politicos(neo4j: Neo4jConnection, batch: list[dict]) -> int:
         return 0
 
 
+import time as _time
+
+# ─── HELPER: conta linhas de um arquivo sem carregar tudo na memória ───────────
+def _contar_linhas(caminho: Path) -> int:
+    """Conta linhas do arquivo de forma eficiente (para calcular ETA)."""
+    try:
+        with open(caminho, "rb") as f:
+            return sum(1 for _ in f)
+    except Exception:
+        return 0
+
+
 # ─── INJETOR TSE: BENS DECLARADOS ────────────────────────────────────────────
 def injetar_bens_tse(neo4j: Neo4jConnection, ano: int, pasta_dados: Path):
     """
     Lê bens declarados pelos candidatos e cria arestas :DECLARA_BEM
     com a propriedade valor_total na aresta.
+    Exibe logs de progresso em tempo real: %, linhas/s e ETA.
     """
     zip_path = pasta_dados / f"tse_bens_{ano}.zip"
     if not zip_path.exists():
@@ -213,38 +226,90 @@ def injetar_bens_tse(neo4j: Neo4jConnection, ano: int, pasta_dados: Path):
     extract_dir.mkdir(exist_ok=True)
     csvs = _extrair_zip(zip_path, extract_dir)
 
-    total = 0
+    total_geral = 0
+
     for csv_path in csvs:
-        logger.info(f"  📖 Bens: {csv_path.name}")
+        # ── Conta total de linhas para calcular progresso ──────────────────────
+        total_linhas = _contar_linhas(csv_path) - 1  # -1 para descontar o header
+        total_linhas = max(total_linhas, 1)
+
+        logger.info(f"")
+        logger.info(f"  ┌─ 📖 Bens: {csv_path.name}")
+        logger.info(f"  │   Total de linhas no arquivo: {total_linhas:,}")
+        logger.info(f"  └─ Iniciando injeção... (atualiza a cada 5.000 registros)")
+
         try:
+            t_inicio_arquivo = _time.time()
+            t_ultimo_log     = _time.time()
+            linhas_lidas     = 0
+            linhas_validas   = 0
+            batch            = []
+
             with open(csv_path, encoding="latin-1", errors="replace", newline="") as f:
                 reader = csv.DictReader(f, delimiter=";")
-                batch  = []
+
                 for row in reader:
-                    sq = row.get("SQ_CANDIDATO", "")
+                    linhas_lidas += 1
+
+                    sq        = row.get("SQ_CANDIDATO", "")
                     descricao = row.get("DS_BEM_CANDIDATO", "").strip()
                     valor_str = row.get("VR_BEM_CANDIDATO", "0")
-                    valor = _parse_valor(valor_str)
+                    valor     = _parse_valor(valor_str)
 
                     if not sq or valor <= 0:
                         continue
 
-                    batch.append({"id_tse": sq, "descricao": descricao, "valor": valor})
+                    linhas_validas += 1
+                    batch.append({"id_tse": sq.strip(), "descricao": descricao, "valor": valor})
 
-                    if len(batch) >= 500:
+                    # ── Flush do lote ──────────────────────────────────────────
+                    if len(batch) >= 1000:
                         _batch_merge_bens(neo4j, batch)
-                        total += len(batch)
+                        total_geral += len(batch)
                         batch = []
 
+                    # ── Log de progresso a cada 5.000 linhas lidas ─────────────
+                    if linhas_lidas % 5000 == 0:
+                        agora        = _time.time()
+                        decorrido    = agora - t_inicio_arquivo
+                        pct          = (linhas_lidas / total_linhas) * 100
+                        lps          = linhas_lidas / decorrido if decorrido > 0 else 0
+                        restante     = (total_linhas - linhas_lidas) / lps if lps > 0 else 0
+                        eta_min, eta_s = divmod(int(restante), 60)
+
+                        # Barra visual simples (30 chars)
+                        blocos  = int(pct / 100 * 30)
+                        barra   = "█" * blocos + "░" * (30 - blocos)
+
+                        logger.info(
+                            f"  ⏳ [{barra}] {pct:5.1f}% | "
+                            f"{linhas_lidas:,}/{total_linhas:,} linhas | "
+                            f"{lps:,.0f} lin/s | "
+                            f"ETA: {eta_min}m{eta_s:02d}s | "
+                            f"Arestas criadas: {total_geral:,}"
+                        )
+
+                # ── Flush do último lote ───────────────────────────────────────
                 if batch:
                     _batch_merge_bens(neo4j, batch)
-                    total += len(batch)
+                    total_geral += len(batch)
+
+            # ── Resumo do arquivo ──────────────────────────────────────────────
+            t_total_arquivo = _time.time() - t_inicio_arquivo
+            min_a, seg_a    = divmod(int(t_total_arquivo), 60)
+            logger.info(
+                f"  ✅ {csv_path.name} concluído: "
+                f"{linhas_lidas:,} linhas lidas | "
+                f"{linhas_validas:,} bens válidos | "
+                f"Tempo: {min_a}m{seg_a:02d}s"
+            )
 
         except Exception as e:
-            logger.error(f"  ❌ Erro ao ler bens: {e}")
+            logger.error(f"  ❌ Erro ao ler {csv_path.name}: {e}")
 
-    logger.info(f"  ✅ Bens TSE: {total} relações :DECLARA_BEM com valor_total criadas")
-    return total
+    logger.info(f"")
+    logger.info(f"  🏁 FASE 2 CONCLUÍDA: {total_geral:,} relações :DECLARA_BEM com valor_total")
+    return total_geral
 
 
 def _batch_merge_bens(neo4j: Neo4jConnection, batch: list[dict]):
@@ -303,7 +368,7 @@ def injetar_ceis_cgu(neo4j: Neo4jConnection, ano: int, pasta_dados: Path):
                         "inidonia": True,
                     })
 
-                    if len(batch) >= 500:
+                    if len(batch) >= 1000:
                         _batch_merge_empresas_ceis(neo4j, batch)
                         total += len(batch)
                         batch = []
@@ -365,6 +430,39 @@ def imprimir_stats_grafo(neo4j: Neo4jConnection):
     logger.info("=" * 65)
 
 
+def _setup_grafo(neo4j: Neo4jConnection):
+    """Garante que constraints e índices existam antes da injeção."""
+    logger.info("🛠️  Configurando constraints e índices no Neo4j...")
+    
+    commands = [
+        # Constraints de Unicidade (Chaves Primárias)
+        "CREATE CONSTRAINT politico_id_tse IF NOT EXISTS FOR (p:Politico) REQUIRE p.id_tse IS UNIQUE",
+        "CREATE CONSTRAINT empresa_cnpj IF NOT EXISTS FOR (e:Empresa) REQUIRE e.cnpj IS UNIQUE",
+        "CREATE CONSTRAINT socio_nome IF NOT EXISTS FOR (s:Socio) REQUIRE s.nome IS UNIQUE",
+        
+        # Índices de Busca (Performance de MATCH)
+        "CREATE INDEX politico_id_tse_idx IF NOT EXISTS FOR (p:Politico) ON (p.id_tse)",
+        "CREATE INDEX politico_nome_idx IF NOT EXISTS FOR (p:Politico) ON (p.nome)",
+        "CREATE INDEX bem_id_tse_idx IF NOT EXISTS FOR (b:BemDeclarado) ON (b.id_tse)",
+        "CREATE INDEX empresa_nome_idx IF NOT EXISTS FOR (e:Empresa) ON (e.nome)"
+    ]
+    
+    for cmd in commands:
+        try:
+            neo4j.execute_query(cmd)
+            logger.info(f"  ✅ Comando executado: {cmd[:50]}...")
+        except Exception as e:
+            logger.warning(f"  ⚠️  Erro ao executar comando de setup: {e}")
+
+    # Aguarda índices ficarem ONLINE (opcional, mas recomendado para grandes bases)
+    try:
+        logger.info("⏳ Aguardando índices ficarem ONLINE...")
+        neo4j.execute_query("CALL db.awaitIndexes(60)")
+        logger.info("  🚀 Índices prontos!")
+    except Exception as e:
+        logger.warning(f"  ⚠️  Timeout ou erro ao aguardar índices: {e}")
+
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 def main(ano: int, fontes: list):
     logger.info("")
@@ -383,6 +481,8 @@ def main(ano: int, fontes: list):
 
     try:
         neo4j = get_neo4j_connection()
+        # Setup inicial de índices e constraints
+        _setup_grafo(neo4j)
     except Exception as e:
         logger.critical(f"❌ Não foi possível conectar ao Neo4j: {e}")
         logger.critical("   Certifique-se que o Neo4j está rodando em bolt://localhost:7687")

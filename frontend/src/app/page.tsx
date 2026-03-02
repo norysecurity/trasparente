@@ -9,7 +9,7 @@ import {
   Search, ShieldAlert, Activity, User, ShieldCheck, MapPin, Target, ChevronRight, Navigation
 } from "lucide-react";
 import dynamic from 'next/dynamic';
-const QuadroInvestigacao = dynamic(() => import('@/components/QuadroInvestigacao'), { ssr: false });
+const SalaArquivos = dynamic(() => import('@/components/SalaArquivos'), { ssr: false });
 
 // OBSERVAÇÃO AO ARQUITETO/DEV:
 // O GitHub bloqueou o Push anterior devido à detecção de secret (Secret Scanning).
@@ -582,21 +582,20 @@ export default function Home() {
             )}
           </AnimatePresence>
 
-          {/* BOTÃO FLUTUANTE DO QUADRO DE INVESTIGAÇÃO */}
           <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto">
             <button
               onClick={() => setIsDossieAberto(true)}
               className="bg-red-900/80 border border-red-500 text-red-100 font-black uppercase text-sm px-8 py-3 rounded-full shadow-[0_0_20px_rgba(239,68,68,0.6)] hover:bg-red-800 transition-all transform hover:-translate-y-1"
             >
-              Abrir Quadro de Investigação
+              ACESSAR SALA DE ARQUIVOS
             </button>
           </div>
 
         </div>
       </div>
 
-      {/* RENDERIZA O QUADRO SE O BOTÃO FOR CLICADO */}
-      {isDossieAberto && <QuadroInvestigacao onClose={() => setIsDossieAberto(false)} />}
+      {/* RENDERIZA A SALA 3D SE O BOTÃO FOR CLICADO */}
+      {isDossieAberto && <SalaArquivos aoFechar={() => setIsDossieAberto(false)} />}
 
       <style jsx global>{`
                 .custom-scrollbar::-webkit-scrollbar { width: 4px; }

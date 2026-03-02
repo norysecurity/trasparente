@@ -221,17 +221,19 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
     empresas_detalhadas = []
 
     # ── PASSO 1: CONSULTAR NEO4J ──────────────────────────────────────────────
-    if get_neo4j_connection and cpf_real and cpf_real != "00000000000":
+    if get_neo4j_connection and (id_politico or (cpf_real and cpf_real != "00000000000")):
         try:
             logger.info("🕸️ Extraindo subgrafo do banco Neo4j...")
             neo4j_db = get_neo4j_connection()
-            subgrafo_json = neo4j_db.extrair_subgrafo_para_ia(cpf_real)
+            # Prioriza id_politico (ID do TSE) para a extração do subgrafo
+            id_para_busca = str(id_politico) if id_politico else cpf_real
+            subgrafo_json = neo4j_db.extrair_subgrafo_para_ia(id_para_busca)
             neo4j_db.close()
 
             for c in subgrafo_json.get("conexoes_diretas", []):
                 empresas_detalhadas.append({
                     "nome":   c.get("empresa_nome", "N/D"),
-                    "cnpj":   c.get("cnpj", "N/A"),
+                    "cnpj":   c.get("cnpj_ou_id", "N/A"),
                     "cargo":  c.get("relacao", "VÍNCULO DETECTADO"),
                     "valor":  f"R$ {c.get('valor_envolvido', 0):,.2f}",
                     "fonte":  c.get("fonte_url", "DUMP GOVERNAMENTAL"),
@@ -243,8 +245,8 @@ async def auditar_malha_fina_assincrona(id_politico: int, nome_politico: str, cp
             logger.error(f"[NEO4J] ❌ Falha ao consultar grafo: {neo4j_err}")
             subgrafo_json = {"erro": str(neo4j_err)}
     else:
-        logger.warning("⚠️ CPF inválido ou Neo4j indisponível. Grafo não consultado.")
-        subgrafo_json = {"aviso": "CPF não fornecido ou banco indisponível."}
+        logger.warning("⚠️ Identificador (ID/CPF) inválido ou Neo4j indisponível. Grafo não consultado.")
+        subgrafo_json = {"aviso": "Identificador não fornecido ou banco indisponível."}
 
     # ── PASSO 2: AUDITAR COM IA ───────────────────────────────────────────────
     score_risco = 20

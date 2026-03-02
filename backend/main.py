@@ -24,8 +24,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from duckduckgo_search import DDGS
 
 from agente_coletor_autonomo import auditar_malha_fina_assincrona
+from database.neo4j_conn import get_neo4j_connection
 
 app = FastAPI(title="GovTech Transparência API")
+neo4j_conn = get_neo4j_connection()
 
 app.add_middleware(
     CORSMiddleware,
@@ -125,66 +127,192 @@ CANDIDATOS_MUNICIPAIS_RESOURCE = {
 @app.get("/api/politicos/cidade/{uf}/{municipio}")
 def buscar_politicos_cidade(uf: str, municipio: str, ano: int = 2024):
     """
-    CORRIGIDO: Busca APENAS Prefeitos e Vereadores do município específico.
-    Jurisdição bloqueada: cargo IN ['PREFEITO', 'VEREADOR'].
-    Fonte: API de Dados Abertos do TSE.
+    CORRIGIDO: Busca Prefeitos e Vereadores no Neo4j local primeiramente (Dados Injetados).
+    Fallback para API do TSE se não houver dados no grafo.
     """
     uf_upper     = uf.upper().strip()
     municipio_up = municipio.upper().strip()
-    logger.info(f"[CIDADE] Buscando para {municipio_up}-{uf_upper} | ano={ano} | filtro=PREFEITO+VEREADOR")
+    logger.info(f"[CIDADE] Buscando para {municipio_up}-{uf_upper} no Neo4j...")
 
-    # ── Estratégia 1: TSE Dados Abertos ──────────────────────────────────────────
+    # ── Estratégia 1: Neo4j (Dados Locais Injetados) ──────────────────────────
+    try:
+        politicos_grafo = neo4j_conn.buscar_por_cidade(uf_upper, municipio_up)
+        if politicos_grafo:
+            logger.info(f"[GRAFO] Encontrados {len(politicos_grafo)} políticos para {municipio_up}")
+            for p in politicos_grafo:
+                p['score_auditoria'] = obter_score_dossie(p.get('id'))
+            return {
+                "status": "sucesso", 
+                "fonte": "Neo4j (Local)", 
+                "cidade": municipio_up, 
+                "uf": uf_upper, 
+                "politicos": politicos_grafo
+            }
+    except Exception as e:
+        logger.error(f"[ERRO GRAFO] Falha na busca por cidade: {e}")
+
+    # ── Estratégia 2: TSE Dados Abertos ──────────────────────────────────────────
     try:
         tse_url = "https://dadosabertos.tse.jus.br/api/3/action/datastore_search_sql"
-        # Query SQL contra o Datastore do TSE — filtra por município, UF e cargo
         sql = (
             f'SELECT * FROM "candidatos_2024" '
             f'WHERE "SG_UF" = \'{uf_upper}\' '
             f'AND "NM_MUNICIPIO" ILIKE \'{municipio_up}%\' '
-            f'AND "DS_CARGO" ILIKE \'PREFEITO%\' OR "DS_CARGO" ILIKE \'VEREADOR%\' '
-            f'LIMIT 20'
+            f'AND ("DS_CARGO" ILIKE \'PREFEITO%\' OR "DS_CARGO" ILIKE \'VEREADOR%\') '
+            f'LIMIT 30'
         )
         res = requests.get(tse_url, params={"sql": sql}, timeout=8)
         if res.status_code == 200:
             registros = res.json().get("result", {}).get("records", [])
             if registros:
-                logger.info(f"[TSE] Encontrados {len(registros)} candidato(s) municipais para {municipio_up}-{uf_upper}")
+                logger.info(f"[TSE] Encontrados {len(registros)} candidato(s) municipais")
                 resultado = []
                 for r in registros:
-                    cargo_raw = r.get("DS_CARGO", "").strip().upper()
-                    # Dupla verificação de jurisdição — NUNCA retornar federal/estadual
-                    if not any(c in cargo_raw for c in ["PREFEITO", "VEREADOR"]):
-                        logger.warning(f"[JURISDICAO] Cargo '{cargo_raw}' rejeitado — fora da jurisdição municipal")
-                        continue
                     resultado.append({
-                        "id":        r.get("SQ_CANDIDATO", r.get("NR_CANDIDATO", "")),
-                        "nome":      r.get("NM_CANDIDATO", r.get("NM_URNA_CANDIDATO", "")),
-                        "cargo":     cargo_raw.title(),
+                        "id":        r.get("SQ_CANDIDATO", ""),
+                        "nome":      r.get("NM_CANDIDATO", "").title(),
+                        "cargo":     r.get("DS_CARGO", "").title(),
                         "partido":   r.get("SG_PARTIDO", "N/A"),
                         "uf":        uf_upper,
                         "municipio": municipio_up,
-                        "urlFoto":   "",   # TSE não expõe foto via API pública
                         "score_auditoria": obter_score_dossie(r.get("SQ_CANDIDATO", "")),
                     })
                 return {"status": "sucesso", "fonte": "TSE", "cidade": municipio_up, "uf": uf_upper, "politicos": resultado}
-        else:
-            logger.warning(f"[TSE] Status {res.status_code} — tentando fallback Câmara + vereadores.")
     except Exception as e:
-        logger.warning(f"[TSE] Indisponível: {e} — ativando fallback.")
+        logger.warning(f"[TSE] Indisponível: {e}")
 
-    # ── Estratégia 2: Fallback — Câmara filtrada por UF (indica deputados ESTADUAIS, não federais) ──
-    # Obs: A Câmara dos Deputados só tem Deputados Federais.
-    # Prefeitos/Vereadores só existem em base TSE ou IBGE.
-    # Retornamos aviso ao frontend em vez de dados errados.
-    logger.error(f"[JURISDICAO] Nenhuma fonte disponível para {municipio_up}-{uf_upper}. Retornando vazio seguro.")
     return {
         "status": "sem_dados",
         "cidade": municipio_up,
         "uf": uf_upper,
         "politicos": [],
-        "mensagem": "Dados municipais (Prefeito/Vereador) indisponíveis no momento. Fonte TSE offline.",
-        "fonte_sugerida": f"https://dadosabertos.tse.jus.br/dataset/candidatos-{ano}"
+        "mensagem": "Dados não encontrados no Grafo nem no TSE."
     }
+
+@app.get("/api/politicos/cidade/{uf}/todos")
+def buscar_politicos_estado_completo(uf: str):
+    """Busca todos os políticos de um estado no Neo4j (Fichário da Sala de Arquivos)."""
+    try:
+        resultado = neo4j_conn.buscar_por_estado(uf)
+        if resultado:
+            for p in resultado:
+                p['score_auditoria'] = obter_score_dossie(p.get('id'))
+            return {"status": "sucesso", "uf": uf.upper(), "dados": resultado}
+    except Exception as e:
+        logger.error(f"Erro ao buscar estado completo: {e}")
+    
+    return {"status": "sem_dados", "uf": uf.upper(), "dados": []}
+
+@app.get("/api/politicos/pesquisa")
+def pesquisar_politicos_global(q: str):
+    """Pesquisa global no Neo4j e na Câmara (Deputados)."""
+    termo = q.strip()
+    if not termo: return {"status": "vazio", "dados": []}
+    
+    resultados = []
+    
+    # 1. Busca no Neo4j (Políticos Injetados - Todos os níveis)
+    try:
+        grafo_res = neo4j_conn.buscar_por_termo(termo)
+        for p in grafo_res:
+            p['fonte'] = "Neo4j"
+            p['score_auditoria'] = obter_score_dossie(p.get('id'))
+            resultados.append(p)
+    except: pass
+    
+    # 2. Busca na Câmara (Deputados Federais Síncronos)
+    try:
+        res_camara = requests.get(CAMARA_API, params={"nome": termo})
+        if res_camara.status_code == 200:
+            for d in res_camara.json().get("dados", []):
+                if not any(r['id'] == str(d['id']) for r in resultados):
+                    resultados.append({
+                        "id": str(d['id']),
+                        "nome": d['nome'],
+                        "cargo": "Deputado Federal",
+                        "partido": d.get('siglaPartido', 'N/A'),
+                        "uf": d.get('siglaUf', 'BR'),
+                        "fonte": "Câmara API",
+                        "score_auditoria": obter_score_dossie(d['id'])
+                    })
+    except: pass
+    
+    return {"status": "sucesso", "dados": resultados}
+
+@app.get("/api/dossies/arvore")
+def listar_arvore_dossies(uf: str = None, cidade: str = None):
+    """
+    Lista a estrutura de pastas e arquivos de forma hierárquica.
+    Brasil -> UF -> Cidade -> Político
+    """
+    base_path = os.path.join(os.path.dirname(__file__), "dossies")
+    if not os.path.exists(base_path): os.makedirs(base_path)
+
+    try:
+        if not uf:
+            # Lista as UFs (pastas no nível raiz de dossies)
+            ufs = [d for d in os.listdir(base_path) if os.path.isdir(os.path.join(base_path, d))]
+            items = []
+            for u in sorted(ufs):
+                path_uf = os.path.join(base_path, u)
+                cidades = [c for c in os.listdir(path_uf) if os.path.isdir(os.path.join(path_uf, c))]
+                total = 0
+                for c in cidades:
+                    path_cid = os.path.join(path_uf, c)
+                    total += len([f for f in os.listdir(path_cid) if f.endswith(".json")])
+                items.append({"nome": u, "tipo": "pasta", "total": total})
+            return {"status": "sucesso", "items": items}
+        
+        if uf and not cidade:
+            # Lista as Cidades dentro da UF
+            path_uf = os.path.join(base_path, uf.upper())
+            if not os.path.exists(path_uf): return {"status": "vazio", "items": []}
+            cidades = [c for c in os.listdir(path_uf) if os.path.isdir(os.path.join(path_uf, c))]
+            items = []
+            for c in sorted(cidades):
+                path_cid = os.path.join(path_uf, c)
+                total = len([f for f in os.listdir(path_cid) if f.endswith(".json")])
+                items.append({"nome": c, "tipo": "pasta", "total": total})
+            return {"status": "sucesso", "items": items}
+
+        if uf and cidade:
+            # Lista os Políticos dentro da Cidade
+            path_cid = os.path.join(base_path, uf.upper(), cidade.upper())
+            if not os.path.exists(path_cid): return {"status": "vazio", "items": []}
+            arquivos = [f for f in os.listdir(path_cid) if f.endswith(".json")]
+            items = []
+            for f in sorted(arquivos):
+                try:
+                    with open(os.path.join(path_cid, f), "r", encoding="utf-8") as file:
+                        dados = json.load(file)
+                        items.append({
+                            "nome": dados.get("nome_politico") or dados.get("nome", f"ID {f}"),
+                            "tipo": "arquivo",
+                            "score": dados.get("ia_analise", {}).get("score_risco", 0),
+                            "uf": uf.upper(),
+                            "cidade": cidade.upper(),
+                            "path": f"{uf.upper()}/{cidade.upper()}/{f}"
+                        })
+                except: continue
+            return {"status": "sucesso", "items": items}
+
+    except Exception as e:
+        logger.error(f"Erro na árvore de dossiês: {e}")
+        return {"status": "erro", "mensagem": str(e), "items": []}
+
+@app.get("/api/politico/detalhes/arquivo")
+def obter_detalhes_por_arquivo(path: str):
+    """Retorna o JSON completo de um dossiê específico pelo caminho relativo."""
+    try:
+        full_path = os.path.join(os.path.dirname(__file__), "dossies", path)
+        if not os.path.exists(full_path):
+            raise HTTPException(status_code=404, detail="Dossiê não encontrado.")
+        
+        with open(full_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Erro ao ler arquivo {path}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Mantém rota legada para compatibilidade com frontend antigo
 @app.get("/api/politicos/cidade/{municipio}")
@@ -221,7 +349,21 @@ nome_presidenciais_dict = {
 }
 @app.get("/api/politico/detalhes/{id}")
 def buscar_politico_detalhes(id: int, background_tasks: BackgroundTasks):
-    if id in CACHE_DOSSIES: return {"status": "sucesso", "dados": CACHE_DOSSIES[id], "cached": True}
+    # 1. Tentar Cache em Memória
+    if id in CACHE_DOSSIES: 
+        return {"status": "sucesso", "dados": CACHE_DOSSIES[id], "cached": True}
+
+    # 2. Tentar Disco (Pasta dossies)
+    pasta = os.path.join(os.getcwd(), "dossies")
+    caminho_arquivo = os.path.join(pasta, f"dossie_{id}.json")
+    if os.path.exists(caminho_arquivo):
+        try:
+            with open(caminho_arquivo, "r", encoding="utf-8") as f:
+                dados_disco = json.load(f)
+                CACHE_DOSSIES[id] = dados_disco # Alimenta o cache
+                return {"status": "sucesso", "dados": dados_disco, "cached": False, "fonte": "disco"}
+        except Exception as e:
+            print(f"Erro ao ler dossiê do disco ID {id}: {e}")
 
     id_pol = str(id)
     if id_pol in nome_presidenciais_dict:

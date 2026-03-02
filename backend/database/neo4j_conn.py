@@ -51,15 +51,23 @@ class Neo4jConnection:
     # ---------------------------------------------------------
 
     def merge_politico(self, dados: dict):
-        """Cria ou atualiza o nó (:Politico)"""
+        """Cria ou atualiza o nó (:Politico) usando id_tse como âncora."""
         query = """
-        MERGE (p:Politico {cpf: $cpf})
-        ON CREATE SET p.nome = $nome, p.cargo = $cargo, p.partido = $partido, p.cadastrado_em = date()
-        ON MATCH SET p.nome = $nome, p.cargo = $cargo, p.partido = $partido
+        MERGE (p:Politico {id_tse: $id_tse})
+        ON CREATE SET 
+            p.nome = $nome, p.cargo = $cargo, p.partido = $partido, 
+            p.cpf = $cpf, p.cadastrado_em = date()
+        ON MATCH SET 
+            p.nome = $nome, p.cargo = $cargo, p.partido = $partido,
+            p.cpf = CASE WHEN $cpf IS NOT NULL THEN $cpf ELSE p.cpf END
         """
         with self.driver.session() as session:
-            session.run(query, cpf=dados.get("cpf", "00000000000"), nome=dados.get("nome", "Desconhecido"), 
-                        cargo=dados.get("cargo", ""), partido=dados.get("partido", ""))
+            session.run(query, 
+                        id_tse=str(dados.get("id_tse", "")),
+                        cpf=dados.get("cpf"), 
+                        nome=dados.get("nome", "Desconhecido"), 
+                        cargo=dados.get("cargo", ""), 
+                        partido=dados.get("partido", ""))
 
     def merge_empresa(self, dados: dict):
         """Cria ou atualiza o nó (:Empresa)"""
@@ -89,56 +97,106 @@ class Neo4jConnection:
     # ---------------------------------------------------------
     # A FUNÇÃO CRUCIAL PARA A IA (Extração de Subgrafo)
     # ---------------------------------------------------------
-    def extrair_subgrafo_para_ia(self, cpf: str) -> dict:
+    def extrair_subgrafo_para_ia(self, identificador: str) -> dict:
         """
-        Extrai o subgrafo de um político com até 3 graus de separação:
-        Político -> Emendas -> Empresas -> Sócios
-        Retorna em JSON limpo e estruturado para o Motor IA (Qwen).
+        Extrai o subgrafo de um político com até 3 graus de separação.
+        O 'identificador' pode ser tanto o CPF quanto o id_tse.
         """
         query = """
-        MATCH (p:Politico {cpf: $cpf})
+        MATCH (p:Politico)
+        WHERE p.id_tse = $id OR p.cpf = $id
         
-        // 1º Grau: O que o político fez diretamente (Ex: Destinou Emenda para Empresa)
-        OPTIONAL MATCH (p)-[rel_1]->(e:Empresa)
+        // 1º Grau: Bens declarados ou conexões diretas
+        OPTIONAL MATCH (p)-[rel_1]->(alvo)
         
-        // 2º Grau: O que essa Empresa tem de Sócios
-        OPTIONAL MATCH (s:Socio)-[rel_2:E_SOCIO_DE]->(e)
+        // 2º Grau: Sócios das empresas ou desdobramentos
+        OPTIONAL MATCH (s:Socio)-[rel_2:E_SOCIO_DE]->(alvo)
         
-        // 3º Grau: Esss Sócios tem outras empresas?
+        // 3º Grau: Outras empresas dos mesmos sócios
         OPTIONAL MATCH (s)-[rel_3:E_SOCIO_DE]->(e_outra:Empresa)
         
         RETURN 
             p.nome AS politico, 
             p.cpf AS cpf,
+            p.id_tse AS id_tse,
             collect(DISTINCT {
-                empresa_nome: e.nome, 
-                cnpj: e.cnpj, 
+                empresa_nome: COALESCE(alvo.nome, alvo.descricao), 
+                cnpj_ou_id: COALESCE(alvo.cnpj, alvo.id_tse), 
                 relacao: type(rel_1), 
                 valor_envolvido: rel_1.valor_total
             }) AS conexoes_diretas,
             collect(DISTINCT {
                 socio: s.nome, 
-                empresa_alvo: e.nome,
+                empresa_alvo: alvo.nome,
                 outras_empresas: e_outra.nome
             }) AS rede_societaria
         """
         
         try:
             with self.driver.session() as session:
-                resultado = session.run(query, cpf=cpf).single()
+                resultado = session.run(query, id=str(identificador)).single()
                 
                 if not resultado:
-                    return {"erro": "Político não encontrado no grafo."}
+                    return {"erro": f"Político '{identificador}' não encontrado no grafo."}
                 
                 return {
                     "politico": resultado["politico"],
                     "cpf": resultado["cpf"],
+                    "id_tse": resultado["id_tse"],
                     "conexoes_diretas": [c for c in resultado["conexoes_diretas"] if c.get('empresa_nome')],
                     "rede_societaria": [s for s in resultado["rede_societaria"] if s.get('socio')]
                 }
         except Exception as e:
             logger.error(f"Erro ao extrair subgrafo para IA: {e}")
             return {"erro": str(e)}
+
+    def buscar_por_cidade(self, uf: str, municipio: str) -> list:
+        """Busca políticos no Neo4j filtrando por UF e Município."""
+        query = """
+        MATCH (p:Politico)
+        WHERE p.uf = $uf AND p.municipio = $municipio
+        RETURN p.id_tse AS id, p.nome AS nome, p.cargo AS cargo, 
+               p.partido AS partido, p.uf AS uf, p.municipio AS municipio
+        LIMIT 100
+        """
+        try:
+            with self.driver.session() as session:
+                return session.run(query, uf=uf.upper(), municipio=municipio.upper()).data()
+        except Exception as e:
+            logger.error(f"Erro ao buscar políticos por cidade no Neo4j: {e}")
+            return []
+
+    def buscar_por_estado(self, uf: str) -> list:
+        """Busca todos os políticos do Neo4j de um determinado Estado (UF)."""
+        query = """
+        MATCH (p:Politico)
+        WHERE p.uf = $uf
+        RETURN p.id_tse AS id, p.nome AS nome, p.cargo AS cargo, 
+               p.partido AS partido, p.uf AS uf, p.municipio AS municipio
+        LIMIT 500
+        """
+        try:
+            with self.driver.session() as session:
+                return session.run(query, uf=uf.upper()).data()
+        except Exception as e:
+            logger.error(f"Erro ao buscar políticos por estado no Neo4j: {e}")
+            return []
+
+    def buscar_por_termo(self, termo: str) -> list:
+        """Busca políticos por nome ou ID no Neo4j."""
+        query = """
+        MATCH (p:Politico)
+        WHERE p.nome CONTAINS $termo OR p.id_tse = $termo OR p.cpf = $termo
+        RETURN p.id_tse AS id, p.nome AS nome, p.cargo AS cargo, 
+               p.partido AS partido, p.uf AS uf, p.municipio AS municipio
+        LIMIT 50
+        """
+        try:
+            with self.driver.session() as session:
+                return session.run(query, termo=termo).data()
+        except Exception as e:
+            logger.error(f"Erro ao pesquisar políticos no Neo4j: {e}")
+            return []
 
     # ---------------------------------------------------------
     # Função Antiga de Retrocompatibilidade (Chamada pelo pipeline)
