@@ -516,7 +516,7 @@ if __name__ == "__main__":
         epilog="Exemplo: python injetor_neo4j.py --ano 2024 --fonte tse"
     )
     parser.add_argument("--ano",   type=int, default=2024,
-                        choices=[2018, 2020, 2022, 2024],
+                        choices=[2018, 2020, 2022, 2024, 2025],
                         help="Ano dos dumps (padrão: 2024)")
     parser.add_argument("--fonte", type=str, default="todos",
                         choices=["tse", "cgu", "todos"],

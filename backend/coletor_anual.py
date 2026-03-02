@@ -45,6 +45,7 @@ FONTES = {
             2022: "https://cdn.tse.jus.br/estatistica/sead/odsele/consulta_cand/consulta_cand_2022.zip",
             2020: "https://cdn.tse.jus.br/estatistica/sead/odsele/consulta_cand/consulta_cand_2020.zip",
             2018: "https://cdn.tse.jus.br/estatistica/sead/odsele/consulta_cand/consulta_cand_2018.zip",
+            2025: "https://cdn.tse.jus.br/estatistica/sead/odsele/consulta_cand/consulta_cand_2024.zip", # Fallback para 2024 (base atual)
         },
         "bens": {
             2024: "https://cdn.tse.jus.br/estatistica/sead/odsele/bem_candidato/bem_candidato_2024.zip",
@@ -94,7 +95,7 @@ class MotorExtracaoGoverno:
         self.stats = {"ok": 0, "erro": 0, "bytes": 0}
 
     # ── DOWNLOAD COM STREAMING E PROGRESSO ───────────────────────────────────
-    async def _baixar_com_progresso(self, url: str, caminho_destino: Path) -> bool:
+    async def _baixar_com_progresso(self, url: str, caminho_destino: Path, **kwargs) -> bool:
         """Faz o download com log de progresso a cada chunk. NUNCA silencia erros."""
         logger.info(f"  ⬇️  Conectando em: {url}")
         try:
@@ -129,10 +130,19 @@ class MotorExtracaoGoverno:
                 return True
 
         except httpx.HTTPStatusError as e:
+            if e.response.status_code == 403:
+                 # Tentativa de retry com backoff se for 403
+                 tentativas = kwargs.get("tentativas", 0)
+                 max_tentativas = 3
+                 if tentativas < max_tentativas:
+                     segundos_espera = 15 * (tentativas + 1)
+                     logger.warning(f"  ⚠️  HTTP 403 (Bloqueio). Tentativa {tentativas+1}/{max_tentativas}. Aguardando {segundos_espera}s...")
+                     await asyncio.sleep(segundos_espera)
+                     return await self._baixar_com_progresso(url, caminho_destino, tentativas=tentativas+1)
+            
             self.stats["erro"] += 1
             logger.error(f"  ❌ BLOQUEIO DO GOVERNO: HTTP {e.response.status_code} em {url}")
             logger.error(f"     Cabeçalhos de resposta: {dict(e.response.headers)}")
-            logger.error(f"     Corpo (primeiros 500 chars): {e.response.text[:500]}")
             if e.response.status_code == 403:
                 logger.error("     → CAUSA PROVÁVEL: Bloqueio de IP / Rate Limit. Aguarde antes de tentar novamente.")
             elif e.response.status_code == 404:
@@ -400,7 +410,7 @@ if __name__ == "__main__":
         epilog="Exemplos:\n  python coletor_anual.py --ano 2024 --fonte tse\n  python coletor_anual.py --ano 2024 --force --injetar"
     )
     parser.add_argument("--ano",   type=int, default=2024,
-                        choices=[2018, 2020, 2022, 2024],
+                        choices=[2018, 2020, 2022, 2024, 2025],
                         help="Ano eleitoral alvo (padrão: 2024)")
     parser.add_argument("--fonte", type=str, default="todos",
                         choices=["tse", "cgu", "ibge", "todos"],
