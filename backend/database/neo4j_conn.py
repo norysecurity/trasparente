@@ -99,37 +99,59 @@ class Neo4jConnection:
     # ---------------------------------------------------------
     def extrair_subgrafo_para_ia(self, identificador: str) -> dict:
         """
-        Extrai o subgrafo de um político com até 3 graus de separação.
-        O 'identificador' pode ser tanto o CPF quanto o id_tse.
+        Extrai o subgrafo de inteligência "Siga o Dinheiro":
+        1. Bens e Empresas declaradas.
+        2. Sócios das empresas (Rede OSINT).
+        3. Licitações/Contratos ganhos (:Contrato).
+        4. Nepotismo (Cruzamento de sobrenomes no mesmo Estado).
         """
         query = """
         MATCH (p:Politico)
-        WHERE p.id_tse = $id OR p.cpf = $id
+        WHERE p.id_tse = $id OR p.cpf = $id OR p.nome = $id
         
-        // 1º Grau: Bens declarados ou conexões diretas
-        OPTIONAL MATCH (p)-[rel_1]->(alvo)
+        WITH p, split(p.nome, ' ') AS nomes
+        // Pega o último sobrenome para cruzamento de nepotismo
+        WITH p, nomes[size(nomes)-1] AS sobrenome_alvo
         
-        // 2º Grau: Sócios das empresas ou desdobramentos
-        OPTIONAL MATCH (s:Socio)-[rel_2:E_SOCIO_DE]->(alvo)
+        // 1. Conexões Diretas (Bens, Empresas, Emendas)
+        OPTIONAL MATCH (p)-[rel_dir]->(alvo)
+        WHERE NOT alvo:Politico
         
-        // 3º Grau: Outras empresas dos mesmos sócios
-        OPTIONAL MATCH (s)-[rel_3:E_SOCIO_DE]->(e_outra:Empresa)
+        // 2. Quadro Societário e Redes de Influência
+        OPTIONAL MATCH (alvo)<-[:E_SOCIO_DE]-(socio:Socio)
+        
+        // 3. Contratos Públicos (Dinheiro Grosso)
+        OPTIONAL MATCH (alvo)-[:GANHOU_LICITACAO]->(contrato:Contrato)
+        
+        // 4. Radar de Nepotismo (Cruzamento por Sobrenome e UF)
+        // Busca sócios que ganharam licitações no mesmo estado e têm o mesmo sobrenome do político
+        OPTIONAL MATCH (socio_nep:Socio)-[:E_SOCIO_DE]->(emp_nep:Empresa)-[:GANHOU_LICITACAO]->(con_nep:Contrato)
+        WHERE p.uf IS NOT NULL AND emp_nep.uf = p.uf 
+              AND socio_nep.nome ENDS WITH sobrenome_alvo
+              AND socio_nep.nome <> p.nome
         
         RETURN 
             p.nome AS politico, 
             p.cpf AS cpf,
             p.id_tse AS id_tse,
+            p.uf AS uf,
             collect(DISTINCT {
-                empresa_nome: COALESCE(alvo.nome, alvo.descricao), 
-                cnpj_ou_id: COALESCE(alvo.cnpj, alvo.id_tse), 
-                relacao: type(rel_1), 
-                valor_envolvido: rel_1.valor_total
-            }) AS conexoes_diretas,
+                tipo: labels(alvo)[0],
+                nome: COALESCE(alvo.nome, alvo.descricao),
+                relacao: type(rel_dir),
+                valor: rel_dir.valor_total
+            }) AS ativos_e_empresas,
             collect(DISTINCT {
-                socio: s.nome, 
-                empresa_alvo: alvo.nome,
-                outras_empresas: e_outra.nome
-            }) AS rede_societaria
+                socio: socio.nome,
+                empresa: alvo.nome,
+                contratos_ganhos: contrato.valor
+            }) AS rede_societaria_e_contratos,
+            collect(DISTINCT {
+                possivel_parente: socio_nep.nome,
+                empresa_beneficiada: emp_nep.nome,
+                valor_contracto: con_nep.valor,
+                objeto: con_nep.objeto
+            }) AS indicios_nepotismo
         """
         
         try:
@@ -139,12 +161,15 @@ class Neo4jConnection:
                 if not resultado:
                     return {"erro": f"Político '{identificador}' não encontrado no grafo."}
                 
+                # Processamento final para garantir JSON limpo
                 return {
                     "politico": resultado["politico"],
                     "cpf": resultado["cpf"],
                     "id_tse": resultado["id_tse"],
-                    "conexoes_diretas": [c for c in resultado["conexoes_diretas"] if c.get('empresa_nome')],
-                    "rede_societaria": [s for s in resultado["rede_societaria"] if s.get('socio')]
+                    "uf": resultado["uf"],
+                    "ativos_e_empresas": [a for a in resultado["ativos_e_empresas"] if a.get('nome')],
+                    "rede_societaria": [s for s in resultado["rede_societaria_e_contratos"] if s.get('socio')],
+                    "indicios_nepotismo": [n for n in resultado["indicios_nepotismo"] if n.get('possivel_parente')]
                 }
         except Exception as e:
             logger.error(f"Erro ao extrair subgrafo para IA: {e}")

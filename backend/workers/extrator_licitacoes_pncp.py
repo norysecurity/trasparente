@@ -22,93 +22,114 @@ from database.neo4j_conn import get_neo4j_connection
 PNCP_API = "https://pncp.gov.br/api/pncp/v1"
 PNCP_API_SEARCH = "https://pncp.gov.br/api/search"
 
-def extrair_licitacoes_milionarias():
+def buscar_qsa_brasilapi(cnpj: str):
     """
-    Motor de Dinheiro Grosso (PNCP):
-    1. Busca contratos homologados no portal nacional de contratações públicas
-    2. Filtra aqueles que faturaram > R$ 1 Milhão no dia
-    3. Alimenta a empresa e o contrato no Neo4j 
-       (A IA no Dashboard vai cruzar isso ligando aos Políticos e Sócios Red Flag)
+    Busca o Quadro de Sócios e Administradores (QSA) via BrasilAPI.
     """
-    logger.info("🔥 INICIANDO CAÇADOR DE LICITAÇÕES (PNCP) 🔥")
+    try:
+        url = f"https://brasilapi.com.br/api/cnpj/v1/{cnpj}"
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            dados = res.json()
+            return dados.get("qsa", [])
+        return []
+    except Exception as e:
+        logger.error(f"Erro ao buscar QSA para CNPJ {cnpj}: {e}")
+        return []
+
+def extrair_licitacoes_recentes():
+    """
+    Motor PNCP Robusto: 
+    1. Busca índices de contratos via /api/search/
+    2. Detalha cada contrato via /api/pncp/v1/orgaos/... para pegar CNPJ
+    3. Cruza com QSA (BrasilAPI)
+    """
+    logger.info("🔥 INICIANDO CAÇADOR DE LICITAÇÕES (SEARCH + DETAILS) 🔥")
     neo4j_db = get_neo4j_connection()
     
-    # Vamos buscar os contratos de hoje e ontem (Modo Diário de Inteligência)
-    datas_busca = [datetime.now().strftime("%Y%m%d"), (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")]
-    
-    for data in datas_busca:
-        logger.info(f"🔎 Varrendo Diário Oficial / PNCP para a data: {data}")
-        pagina = 1
-        
-        while True:
-            try:
-                # Na ausência de busca pura por data no endpoint restrito /contratos, 
-                # a melhor abordagem no PNCP oficial é através da API de busca (solr):
-                # O endpoint /api/search permite filtros mais abertos.
-                # Aqui fazemos um request robusto (ainda que adaptado ao /contratos se o endpoint de data estiver operando no /search)
-                url = f"{PNCP_API_SEARCH}/?q=&tipos_documento=contratos&data_publicacao_inicial={data}&data_publicacao_final={data}&pagina={pagina}"
-                logger.info(f"Acessando: {url}")
-                res = requests.get(url, timeout=15)
-                
-                # Tratamento de erro de HTTP explícito
-                res.raise_for_status()
+    pagina = 1
+    while pagina <= 3: # Primeiras 3 páginas para evitar sobrecarga
+        try:
+            # Busca índices de contratos vigentes e recentes
+            url_search = f"{PNCP_API_SEARCH}/?q=&tipos_documento=contrato&ordenacao=-data&status=vigente&pagina={pagina}"
+            logger.info(f"🔎 Buscando Índices PNCP: {url_search}")
+            res = requests.get(url_search, timeout=15)
+            res.raise_for_status()
+            items = res.json().get("items", [])
+            
+            if not items: break
+            
+            for item in items:
+                try:
+                    # Dados básicos para bater no endpoint de detalhes
+                    orgao_cnpj = item.get("orgao_cnpj")
+                    ano = item.get("ano")
+                    sequencial = item.get("numero_sequencial")
                     
-                dados = res.json()
-                
-                # A documentação de search geralmente põe em "items" ou "data"
-                contratos = dados.get("items", dados.get("data", []))
-                
-                if not contratos: 
-                    logger.info(f"Sem mais dados para {data} na página {pagina}.")
-                    break # Fim das páginas do dia
-                
-                for c in contratos:
-                    valor = float(c.get("valorInicial", c.get("valorContrato", 0)))
-                    if valor >= 1_000_000: # SOMENTE DINHEIRO GROSSO (> 1 Milhão)
-                        cnpj_fornecedor = str(c.get("fornecedorCnpjCpfIdGenerico", c.get("fornecedorCnpjCpf", ""))).strip()
-                        nome_fornecedor = c.get("fornecedorNome", c.get("nomeFornecedor", "DESCONHECIDO")).upper()
-                        orgao = c.get("orgaoEntidade", {}).get("razaoSocial", c.get("nomeOrgao", "GOVERNO")).upper()
-                        objeto = c.get("objetoContrato", c.get("objeto", "Sem Objeto"))[:100]
-                        data_pub = c.get("dataPublicacaoPncp", c.get("dataPublicacao", ""))
+                    if not (orgao_cnpj and ano and sequencial): continue
+                    
+                    url_detail = f"{PNCP_API}/orgaos/{orgao_cnpj}/contratos/{ano}/{sequencial}"
+                    logger.info(f"   📄 Detalhando contrato: {url_detail}")
+                    res_det = requests.get(url_detail, timeout=10)
+                    if res_det.status_code != 200: continue
+                    
+                    det = res_det.json()
+                    id_controle = det.get("numeroControlePNCP")
+                    cnpj_fornecedor = det.get("niFornecedor") # CNPJ DO GANHADOR
+                    nome_fornecedor = det.get("nomeRazaoSocialFornecedor", "DESCONHECIDO").upper()
+                    valor = float(det.get("valorGlobal", 0))
+                    objeto = det.get("objetoContrato", "Sem Objeto")
+                    orgao_nome = det.get("orgaoEntidade", {}).get("razaoSocial", "GOVERNO").upper()
+
+                    if cnpj_fornecedor and len(str(cnpj_fornecedor)) >= 11:
+                        logger.warning(f"   💰 CONTRATO DETECTADO: {nome_fornecedor} - R$ {valor:,.2f}")
                         
-                        if len(cnpj_fornecedor) == 14: # Apenas Empresas, não PFs
-                            logger.warning(f"🚨 ALERTA CONTRATO ({orgao}): {nome_fornecedor} faturou R$ {valor:,.2f}")
-                            
-                            # Registra Empresa no Neo4j como 'Pote de Ouro'
-                            neo4j_db.execute_query('''
-                                MERGE (e:Empresa {cnpj: $cnpj})
-                                ON CREATE SET e.nome = $nome_empresa
-                                MERGE (o:Governo {nome: $orgao})
-                                MERGE (o)-[r:CONTRATOU]->(e)
-                                ON CREATE SET r.valor = $valor, r.objeto = $objeto, r.data_pub = $data_pub
-                                ON MATCH SET r.valor = r.valor + $valor
-                            ''', {
-                                'cnpj': cnpj_fornecedor,
-                                'nome_empresa': nome_fornecedor,
-                                'orgao': orgao,
-                                'valor': valor,
-                                'objeto': objeto,
-                                'data_pub': data_pub
-                            })
-                            # Se a empresa já era de parente/político no Grafo... A bruxa solta no Dashboard depois.
-                
-                pagina += 1
-                time.sleep(1.5) # Respeito à API Federal rigoroso
-                
-            except requests.exceptions.RequestException as e:
-                logger.error(f"❌ Erro de conexão na página PNCP {pagina}: {e}")
-                if hasattr(e, 'response') and e.response is not None:
-                     logger.error(f"Conteúdo do erro: {e.response.text}")
-                logger.info("Aguardando 10s para tentar próxima página...")
-                time.sleep(10)
-                pagina += 1 # Pula página pra não travar loop infinito
-                
-            except Exception as e:
-                logger.error(f"❌ Erro interno desconhecido processando página {pagina}: {e}")
-                break
-                
+                        # Injeta no Neo4j
+                        neo4j_db.execute_query('''
+                            MERGE (e:Empresa {cnpj: $cnpj})
+                            ON CREATE SET e.nome = $nome_empresa
+                            MERGE (c:Contrato {id: $id})
+                            ON CREATE SET 
+                                c.valor = $valor, 
+                                c.orgao = $orgao, 
+                                c.objeto = $objeto,
+                                c.data_cad = date()
+                            MERGE (e)-[:GANHOU_LICITACAO]->(c)
+                        ''', {
+                            'cnpj': cnpj_fornecedor, 
+                            'nome_empresa': nome_fornecedor,
+                            'id': id_controle, 
+                            'valor': valor, 
+                            'orgao': orgao_nome, 
+                            'objeto': objeto
+                        })
+                        
+                        # Busca QSA (OSINT) e Injeta Sócios
+                        socios = buscar_qsa_brasilapi(cnpj_fornecedor)
+                        for s in socios:
+                            nome_socio = s.get("nome_socio", "").upper()
+                            if nome_socio:
+                                neo4j_db.execute_query('''
+                                    MATCH (e:Empresa {cnpj: $cnpj})
+                                    MERGE (s:Socio {nome: $nome_socio})
+                                    MERGE (s)-[:E_SOCIO_DE]->(e)
+                                ''', {'cnpj': cnpj_fornecedor, 'nome_socio': nome_socio})
+                                logger.info(f"      👥 Sócio detectado: {nome_socio}")
+                    
+                    time.sleep(1) # Intervalo entre contratos
+
+                except Exception as ex:
+                    logger.error(f"Erro ao detalhar contrato {item.get('id')}: {ex}")
+
+            pagina += 1
+            time.sleep(2)
+            
+        except Exception as e:
+            logger.error(f"Erro na varredura PNCP: {e}")
+            break
+            
     neo4j_db.close()
-    logger.info("🏁 CAÇA ÀS LICITAÇÕES (PNCP) CONCLUÍDA.")
+    logger.info("🏁 CAÇA ÀS LICITAÇÕES E SÓCIOS CONCLUÍDA.")
 
 if __name__ == "__main__":
-    extrair_licitacoes_milionarias()
+    extrair_licitacoes_recentes()

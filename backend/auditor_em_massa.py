@@ -44,8 +44,9 @@ async def processar_politico(auditor, neo4j, p):
         "partido": p.get("partido"),
         "cargo": p.get("cargo"),
         "ia_analise": laudo,
-        "empresas": teia.get("empresas", []),
-        "socios_detectados": teia.get("socios", []),
+        "ativos_e_empresas": teia.get("ativos_e_empresas", []),
+        "rede_societaria": teia.get("rede_societaria", []),
+        "indicios_nepotismo": teia.get("indicios_nepotismo", []),
         "data_geracao": datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     }
     
